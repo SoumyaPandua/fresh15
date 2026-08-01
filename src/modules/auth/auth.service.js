@@ -66,10 +66,12 @@ export const verifyOtpService = async ({
         throw new Error("OTP expired");
     }
 
-    if (savedOtp !== otp) {
+    // Convert both to string because frontend may send OTP as number
+    if (String(savedOtp) !== String(otp)) {
         throw new Error("Invalid OTP");
     }
 
+    // Registration OTP
     if (purpose === "REGISTER") {
         const user = await User.findOne({ email });
 
@@ -81,30 +83,40 @@ export const verifyOtpService = async ({
 
         await user.save();
 
+        // OTP becomes invalid immediately after successful verification
         await redis.del(key);
 
         return null;
     }
 
-    const resetToken = jwt.sign(
-        {
-            email,
-            purpose: "RESET_PASSWORD"
-        },
-        process.env.JWT_SECRET,
-        {
-            expiresIn: "10m"
+    // Forgot password OTP
+    if (purpose === "FORGOT_PASSWORD") {
+        const user = await User.findOne({ email });
+
+        if (!user) {
+            throw new Error("User not found");
         }
-    );
 
-    await Otp.deleteMany({
-        email,
-        purpose
-    });
+        const resetToken = jwt.sign(
+            {
+                email,
+                purpose: "RESET_PASSWORD"
+            },
+            process.env.JWT_SECRET,
+            {
+                expiresIn: "10m"
+            }
+        );
 
-    return {
-        resetToken
-    };
+        // Delete OTP from Redis after successful verification
+        await redis.del(key);
+
+        return {
+            resetToken
+        };
+    }
+
+    throw new Error("Invalid OTP purpose");
 };
 
 export const loginService = async ({
