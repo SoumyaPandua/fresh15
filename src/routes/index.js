@@ -1,7 +1,7 @@
 import { Router } from "express";
-import authRoutes from "../modules/auth/auth.routes.js";
-// import cartRoutes from "./modules/cart/cart.routes.js";
 
+import authRoutes from "../modules/auth/auth.routes.js";
+import profileRoutes from "../modules/profile/profile.routes.js";
 
 const router = Router();
 
@@ -13,6 +13,6 @@ router.get("/health", (req, res) => {
 });
 
 router.use("/auth", authRoutes);
-// app.use("/api/cart", cartRoutes);
+router.use("/profile", profileRoutes);
 
 export default router;
