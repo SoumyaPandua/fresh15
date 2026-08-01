@@ -27,19 +27,78 @@ export const getMyProfileService = async (userId) => {
 };
 
 export const updateMyProfileService = async (userId, payload) => {
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
+  const {
+    name,
+    email,
+    phone,
+    ...profileData
+  } = payload;
+
+  // Update common User fields
+  if (name !== undefined) {
+    user.name = name;
+  }
+
+  if (phone !== undefined) {
+    user.phone = phone;
+  }
+
+  if (email !== undefined) {
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (normalizedEmail !== user.email) {
+      const existingUser = await User.findOne({
+        email: normalizedEmail,
+        _id: { $ne: userId },
+      });
+
+      if (existingUser) {
+        throw new Error("Email already in use");
+      }
+
+      user.email = normalizedEmail;
+    }
+  }
+
+  await user.save();
+
+  // Update role-specific profile fields
   const profile = await Profile.findOneAndUpdate(
     { userId },
     {
-      $set: payload,
+      $set: {
+        ...profileData,
+        role: user.role,
+      },
     },
     {
       new: true,
       runValidators: true,
       upsert: true,
+      setDefaultsOnInsert: true,
     }
   );
 
-  return profile;
+  return {
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      portal: user.portal,
+      profileImage: user.profileImage,
+      isEmailVerified: user.isEmailVerified,
+      isActive: user.isActive,
+    },
+    profile,
+  };
 };
 
 export const changePasswordService = async (
@@ -74,23 +133,41 @@ export const updateAvatarService = async (userId, file) => {
     throw new Error("Avatar image is required");
   }
 
+  const user = await User.findById(userId);
+
+  if (!user) {
+    throw new Error("User not found");
+  }
+
   const uploadedImage = await uploadImage(
     file.buffer,
     "fresh15/profile"
   );
 
+  const imageUrl = uploadedImage.secure_url;
+
+  user.profileImage = imageUrl;
+
+  await user.save();
+
   const profile = await Profile.findOneAndUpdate(
     { userId },
     {
       $set: {
-        avatar: uploadedImage.secure_url,
+        avatar: imageUrl,
+        role: user.role,
       },
     },
     {
       new: true,
       upsert: true,
+      setDefaultsOnInsert: true,
     }
   );
 
-  return profile;
+  return {
+    profileImage: imageUrl,
+    avatar: imageUrl,
+    profile,
+  };
 };

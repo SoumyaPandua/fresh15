@@ -13,7 +13,6 @@ import { uploadSingleImage } from "../../middleware/upload.middleware.js";
 
 import {
   changePasswordValidation,
-  updateAvatarValidation,
   updateProfileValidation,
 } from "./profile.validation.js";
 
@@ -31,10 +30,9 @@ router.put(
 );
 
 router.patch(
-    "/avatar",
-    authMiddleware,
-    uploadSingleImage,
-    updateAvatar
+  "/avatar",
+  uploadSingleImage,
+  updateAvatar
 );
 
 router.patch(

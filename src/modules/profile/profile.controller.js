@@ -19,17 +19,25 @@ export const getMyProfile = async (req, res) => {
 
 export const updateMyProfile = async (req, res) => {
   try {
-    const profile = await updateMyProfileService(req.user._id, req.body);
+    const data = await updateMyProfileService(
+      req.user._id,
+      req.body
+    );
 
     return sendResponse(
       res,
       200,
       true,
       "Profile updated successfully",
-      profile
+      data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
+    );
   }
 };
 
@@ -48,24 +56,6 @@ export const changePassword = async (req, res) => {
       200,
       true,
       "Password changed successfully"
-    );
-  } catch (error) {
-    return sendResponse(res, 400, false, error.message);
-  }
-};
-
-export const updateAvatar = async (req, res) => {
-  try {
-    const { avatar } = req.body;
-
-    const profile = await updateAvatarService(req.user._id, avatar);
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Avatar updated successfully",
-      profile
     );
   } catch (error) {
     return sendResponse(res, 400, false, error.message);
