@@ -7,7 +7,6 @@ const inventorySchema = new mongoose.Schema(
       ref: "Product",
       required: true,
       unique: true,
-      index: true,
     },
 
     currentStock: {
