@@ -64,7 +64,12 @@ export const changePassword = async (req, res) => {
 
 export const updateAvatar = async (req, res) => {
   try {
-    const profile = await updateAvatarService(
+    console.log("========== AVATAR DEBUG ==========");
+    console.log("req.file:", req.file);
+    console.log("user:", req.user?._id);
+    console.log("==================================");
+
+    const data = await updateAvatarService(
       req.user._id,
       req.file
     );
@@ -74,9 +79,19 @@ export const updateAvatar = async (req, res) => {
       200,
       true,
       "Avatar updated successfully",
-      profile
+      data
     );
+
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+
+    console.error("UPDATE AVATAR ERROR:");
+    console.error(error);
+
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message || "Avatar update failed"
+    );
   }
 };
