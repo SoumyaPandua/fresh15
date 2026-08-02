@@ -3,6 +3,7 @@ import express from "express";
 import authMiddleware from "../../middleware/auth.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
 import { uploadMultipleImages } from "../../middleware/upload.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 
 import {
   createProductValidation,
@@ -20,55 +21,32 @@ import {
 
 const router = express.Router();
 
-router.use(authMiddleware);
-
-/**
- * GET /api/product
- * Query Params:
- * search
- * categoryId
- * isFeatured
- * isActive
- */
 router.get("/", getAllProducts);
 
-/**
- * GET /api/product/:id
- */
 router.get("/:id", getProductById);
 
-/**
- * POST /api/product
- * multipart/form-data
- */
 router.post(
   "/",
+  authMiddleware,
+  authorize("ADMIN", "SUPER_ADMIN"),
   uploadMultipleImages,
   createProductValidation,
   validateRequest,
   createProduct
 );
 
-/**
- * PUT /api/product/:id
- * multipart/form-data
- */
 router.put(
   "/:id",
+  authMiddleware,
+  authorize("ADMIN", "SUPER_ADMIN"),
   uploadMultipleImages,
   updateProductValidation,
   validateRequest,
   updateProduct
 );
 
-/**
- * PATCH /api/product/:id/status
- */
-router.patch("/:id/status", updateProductStatus);
+router.patch("/:id/status", authMiddleware, authorize("ADMIN", "SUPER_ADMIN"), updateProductStatus);
 
-/**
- * DELETE /api/product/:id
- */
-router.delete("/:id", deleteProduct);
+router.delete("/:id", authMiddleware, authorize("ADMIN", "SUPER_ADMIN"), deleteProduct);
 
 export default router;

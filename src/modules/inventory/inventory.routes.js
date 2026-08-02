@@ -2,6 +2,7 @@ import express from "express";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 
 import {
   createInventoryValidation,
@@ -21,6 +22,7 @@ import {
 const router = express.Router();
 
 router.use(authMiddleware);
+router.use(authorize("ADMIN", "SUPER_ADMIN"));
 
 router.get("/", getAllInventory);
 

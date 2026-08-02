@@ -3,6 +3,7 @@ import express from "express";
 import authMiddleware from "../../middleware/auth.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
 import { uploadSingleImage } from "../../middleware/upload.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 
 import {
   createCategoryValidation,
@@ -20,14 +21,13 @@ import {
 
 const router = express.Router();
 
-router.use(authMiddleware);
-
 router.get("/", getAllCategories);
-
 router.get("/:id", getCategoryById);
 
 router.post(
   "/",
+  authMiddleware,
+  authorize("ADMIN", "SUPER_ADMIN"),
   uploadSingleImage,
   createCategoryValidation,
   validateRequest,
@@ -36,14 +36,26 @@ router.post(
 
 router.put(
   "/:id",
+  authMiddleware,
+  authorize("ADMIN", "SUPER_ADMIN"),
   uploadSingleImage,
   updateCategoryValidation,
   validateRequest,
   updateCategory
 );
 
-router.patch("/:id/status", updateCategoryStatus);
+router.patch(
+  "/:id/status",
+  authMiddleware,
+  authorize("ADMIN", "SUPER_ADMIN"),
+  updateCategoryStatus
+);
 
-router.delete("/:id", deleteCategory);
+router.delete(
+  "/:id",
+  authMiddleware,
+  authorize("ADMIN", "SUPER_ADMIN"),
+  deleteCategory
+);
 
 export default router;
