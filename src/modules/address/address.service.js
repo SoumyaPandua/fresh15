@@ -21,7 +21,14 @@ export const getAddressByIdService = async (userId, addressId) => {
 };
 
 export const createAddressService = async (userId, payload) => {
-  if (payload.isDefault) {
+  const existingAddressCount = await Address.countDocuments({
+    userId,
+  });
+
+  const shouldBeDefault =
+    existingAddressCount === 0 || payload.isDefault === true;
+
+  if (shouldBeDefault) {
     await Address.updateMany(
       { userId },
       { $set: { isDefault: false } }
@@ -31,6 +38,7 @@ export const createAddressService = async (userId, payload) => {
   const address = await Address.create({
     ...payload,
     userId,
+    isDefault: shouldBeDefault,
   });
 
   return address;
