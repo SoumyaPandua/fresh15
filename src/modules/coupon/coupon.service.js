@@ -22,31 +22,30 @@ export const createCouponService = async (
   body,
   userId
 ) => {
+  const code = body.code?.trim().toUpperCase();
+
+  if (!code) {
+    throw new Error("Coupon code is required");
+  }
+
   const exists = await Coupon.findOne({
-    code: body.couponCode.toUpperCase(),
+    code,
   });
 
   if (exists) {
-    throw new Error(
-      "Coupon already exists"
-    );
+    throw new Error("Coupon already exists");
   }
 
   const coupon = await Coupon.create({
-    code: body.couponCode.toUpperCase(),
+    code,
     title: body.title,
-    description:
-      body.description || "",
-    discountType:
-      body.discountType,
-    discountValue:
-      body.discountValue,
-    maxDiscount:
-      body.maxDiscount || 0,
+    description: body.description || "",
+    discountType: body.discountType,
+    discountValue: body.discountValue,
+    maxDiscount: body.maxDiscount ?? 0,
     minimumOrderAmount:
-      body.minimumOrderAmount || 0,
-    usageLimit:
-      body.usageLimit || 0,
+      body.minimumOrderAmount ?? 0,
+    usageLimit: body.usageLimit ?? 0,
     validFrom: body.validFrom,
     validUntil: body.validUntil,
     createdBy: userId,
@@ -271,11 +270,3 @@ export const deleteCouponService =
 
     return;
   };
-
-
-// Dashboard & Analytics
-// Wallet / Transactions
-// Support / Help
-// Settings
-// Reports / Revenue
-// Audit Logs
