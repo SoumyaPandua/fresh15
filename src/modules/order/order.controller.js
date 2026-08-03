@@ -99,3 +99,24 @@ export const deleteOrder = async (req, res) => {
     return sendResponse(res, 400, false, error.message);
   }
 };
+
+export const getAllOrders = async (req, res) => {
+  try {
+    const orders = await getAllOrdersService();
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      "Orders fetched successfully",
+      orders
+    );
+  } catch (error) {
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
+    );
+  }
+};

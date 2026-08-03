@@ -2,6 +2,7 @@ import express from "express";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 
 import {
   applyCouponValidation,
@@ -25,16 +26,19 @@ router.use(authMiddleware);
 
 router.get(
   "/",
+  authorize("ADMIN"),
   getAllCoupons
 );
 
 router.get(
   "/:id",
+  authorize("ADMIN"),
   getCouponById
 );
 
 router.post(
   "/",
+  authorize("ADMIN"),
   createCouponValidation,
   validateRequest,
   createCoupon
@@ -49,6 +53,7 @@ router.post(
 
 router.put(
   "/:id",
+  authorize("ADMIN"),
   createCouponValidation,
   validateRequest,
   updateCoupon
@@ -56,6 +61,7 @@ router.put(
 
 router.patch(
   "/:id/status",
+  authorize("ADMIN"),
   updateCouponStatusValidation,
   validateRequest,
   updateCouponStatus
@@ -63,6 +69,7 @@ router.patch(
 
 router.delete(
   "/:id",
+  authorize("ADMIN"),
   deleteCoupon
 );
 

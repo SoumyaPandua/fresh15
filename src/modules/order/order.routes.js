@@ -2,6 +2,7 @@ import express from "express";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 
 import {
   createOrderValidation,
@@ -14,6 +15,7 @@ import {
   getMyOrders,
   getOrderById,
   updateOrderStatus,
+  getAllOrders
 } from "./order.controller.js";
 
 const router = express.Router();
@@ -21,6 +23,12 @@ const router = express.Router();
 router.use(authMiddleware);
 
 router.get("/", getMyOrders);
+
+router.get(
+  "/admin/all",
+  authorize("ADMIN"),
+  getAllOrders
+);
 
 router.get("/:id", getOrderById);
 
@@ -33,6 +41,7 @@ router.post(
 
 router.patch(
   "/:id/status",
+  authorize("ADMIN"),
   updateOrderStatusValidation,
   validateRequest,
   updateOrderStatus
