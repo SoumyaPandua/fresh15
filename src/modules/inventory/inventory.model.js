@@ -69,7 +69,7 @@ const inventorySchema = new mongoose.Schema(
 /**
  * Auto calculate available stock & status
  */
-inventorySchema.pre("save", function (next) {
+inventorySchema.pre("save", function () {
   this.availableStock = Math.max(
     this.currentStock - this.reservedStock,
     0
@@ -84,10 +84,7 @@ inventorySchema.pre("save", function (next) {
   } else {
     this.status = "IN_STOCK";
   }
-
-  next();
 });
-
 const Inventory = mongoose.model(
   "Inventory",
   inventorySchema
