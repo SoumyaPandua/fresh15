@@ -13,10 +13,7 @@ export const getMyOrdersService = async (userId) => {
     .sort({ createdAt: -1 });
 };
 
-export const getOrderByIdService = async (
-  id,
-  userId
-) => {
+export const getOrderByIdService = async (id, userId) => {
   const order = await Order.findOne({
     _id: id,
     userId,
@@ -29,10 +26,7 @@ export const getOrderByIdService = async (
   return order;
 };
 
-export const createOrderService = async (
-  userId,
-  body
-) => {
+export const createOrderService = async (userId, body) => {
   const address = await Address.findOne({
     _id: body.addressId,
     userId,
@@ -101,54 +95,50 @@ export const createOrderService = async (
     couponId = coupon.couponId;
     couponCode = coupon.code;
   }
-}
-let discount = 0;
-let couponId = null;
-let couponCode = "";
-const tax = 0;
 
-const grandTotal =
-  cart.subtotal +
-  deliveryCharge +
-  tax -
-  discount;
+  const grandTotal =
+    cart.subtotal +
+    deliveryCharge +
+    tax -
+    discount;
 
-const orderNumber =
-  "ORD-" +
-  Date.now().toString().slice(-10);
+  const orderNumber =
+    "ORD-" +
+    Date.now().toString().slice(-10);
 
-const order = await Order.create({
-  orderNumber,
-  userId,
-  addressId: body.addressId,
-  items: orderItems,
-  totalItems: cart.totalItems,
-  totalQuantity: cart.totalQuantity,
-  subtotal: cart.subtotal,
-  deliveryCharge,
-  discount,
-  couponId,
-  couponCode,
-  couponDiscount: discount,
-  tax,
-  grandTotal,
-  paymentMethod: body.paymentMethod,
-  notes: body.notes || "",
-  createdBy: userId,
-});
+  const order = await Order.create({
+    orderNumber,
+    userId,
+    addressId: body.addressId,
+    items: orderItems,
+    totalItems: cart.totalItems,
+    totalQuantity: cart.totalQuantity,
+    subtotal: cart.subtotal,
+    deliveryCharge,
+    discount,
+    couponId,
+    couponCode,
+    couponDiscount: discount,
+    tax,
+    grandTotal,
+    paymentMethod: body.paymentMethod,
+    notes: body.notes || "",
+    createdBy: userId,
+  });
 
-if (couponId) {
-  await markCouponUsedService(couponId);
-}
+  if (couponId) {
+    await markCouponUsedService(couponId);
+  }
 
-cart.items = [];
-cart.calculateTotals();
+  cart.items = [];
+  cart.calculateTotals();
 
-await cart.save();
+  await cart.save();
 
-return await Order.findById(order._id)
-  .populate("addressId")
-  .populate("userId", "name email phone");
+  return await Order.findById(order._id)
+    .populate("addressId")
+    .populate("userId", "name email phone");
+};
 
 export const updateOrderStatusService = async (
   id,
@@ -184,13 +174,14 @@ export const deleteOrderService = async (id) => {
   }
 
   await order.deleteOne();
-
-  return;
 };
 
 export const getAllOrdersService = async () => {
   return await Order.find()
     .populate("addressId")
-    .populate("userId", "name email phone profileImage")
+    .populate(
+      "userId",
+      "name email phone profileImage"
+    )
     .sort({ createdAt: -1 });
 };
