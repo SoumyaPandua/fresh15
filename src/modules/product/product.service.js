@@ -2,6 +2,7 @@ import slugify from "slugify";
 
 import Product from "./product.model.js";
 import Category from "../category/category.model.js";
+import Inventory from "../inventory/inventory.model.js";
 import { uploadImage } from "../../config/cloudinary.js";
 
 export const getAllProductsService = async (query) => {
@@ -119,6 +120,16 @@ export const createProductService = async (
     tags: body.tags || [],
     isVeg: body.isVeg ?? true,
     isFeatured: body.isFeatured ?? false,
+    createdBy: userId,
+  });
+
+  await Inventory.create({
+    productId: product._id,
+    currentStock: Number(body.stock) || 0,
+    reservedStock: 0,
+    lowStockThreshold: 10,
+    lastRestockedAt:
+      Number(body.stock) > 0 ? new Date() : null,
     createdBy: userId,
   });
 
