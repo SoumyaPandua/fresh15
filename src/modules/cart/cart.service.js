@@ -5,7 +5,7 @@ import Inventory from "../inventory/inventory.model.js";
 export const getMyCartService = async (userId) => {
   let cart = await Cart.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice sku isActive",
+    select: "name images sellingPrice mrp unit sku stock isActive",
   });
 
   if (!cart) {
@@ -83,7 +83,7 @@ export const addToCartService = async (
 
   return await Cart.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice sku",
+    select: "name images sellingPrice mrp unit sku stock isActive",
   });
 };
 
@@ -127,7 +127,7 @@ export const updateCartItemService = async (
 
   return await Cart.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice sku",
+    select: "name images sellingPrice mrp unit sku stock isActive",
   });
 };
 
@@ -152,7 +152,7 @@ export const removeCartItemService = async (
 
   return await Cart.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice sku",
+    select: "name images sellingPrice mrp unit sku stock isActive",
   });
 };
 

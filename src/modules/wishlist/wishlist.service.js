@@ -4,7 +4,7 @@ import Product from "../product/product.model.js";
 export const getMyWishlistService = async (userId) => {
   let wishlist = await Wishlist.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice mrp sku isActive",
+    select: "name images sellingPrice mrp unit stock sku isActive",
   });
 
   if (!wishlist) {
@@ -58,7 +58,7 @@ export const addWishlistService = async (
 
   return await Wishlist.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice mrp sku isActive",
+    select: "name images sellingPrice mrp unit stock sku isActive",
   });
 };
 
@@ -85,6 +85,6 @@ export const removeWishlistService = async (
 
   return await Wishlist.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sellingPrice mrp sku isActive",
+    select: "name images sellingPrice mrp unit stock sku isActive",
   });
 };
