@@ -82,13 +82,28 @@ export const getAllDeliveriesService = async () => {
 };
 
 export const getDeliveryByIdService = async (
-  id
+  id,
+  userId,
+  userRole
 ) => {
   const delivery =
     await getPopulatedDelivery(id);
 
   if (!delivery) {
     throw new Error("Delivery not found");
+  }
+
+  if (
+    userRole === "PARTNER" &&
+    (
+      !delivery.riderId ||
+      String(delivery.riderId._id ?? delivery.riderId) !==
+      String(userId)
+    )
+  ) {
+    throw new Error(
+      "This delivery is not assigned to you"
+    );
   }
 
   return delivery;
@@ -488,10 +503,35 @@ export const updateDeliveryStatusService =
         }
 
         delivery.rejectedAt = now;
-        delivery.riderStatus =
-          "ONLINE";
 
-        break;
+        const rejectedRiderId =
+          delivery.riderId;
+
+        await releaseRider(
+          rejectedRiderId,
+          delivery._id
+        );
+
+        delivery.riderId = null;
+        delivery.status = "PENDING";
+        delivery.riderStatus = "OFFLINE";
+        delivery.assignedAt = null;
+        delivery.updatedBy = userId;
+
+        await delivery.save();
+
+        await Order.findByIdAndUpdate(
+          delivery.orderId,
+          {
+            orderStatus: "CONFIRMED",
+            deliveryPartnerId: null,
+            updatedBy: userId,
+          }
+        );
+
+        return await getPopulatedDelivery(
+          delivery._id
+        );
 
       case "CANCELLED":
         delivery.cancelledAt = now;

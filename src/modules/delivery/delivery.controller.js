@@ -43,7 +43,9 @@ export const getDeliveryById = async (
   try {
     const data =
       await getDeliveryByIdService(
-        req.params.id
+        req.params.id,
+        req.user._id,
+        req.user.role
       );
 
     return sendResponse(
