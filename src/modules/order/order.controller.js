@@ -5,6 +5,7 @@ import {
   deleteOrderService,
   getMyOrdersService,
   getOrderByIdService,
+  getAllOrdersService,
   updateOrderStatusService,
 } from "./order.service.js";
 
