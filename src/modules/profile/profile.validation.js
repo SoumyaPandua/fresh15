@@ -94,3 +94,11 @@ export const changePasswordValidation = [
     .isLength({ min: 8 })
     .withMessage("Password must be at least 8 characters"),
 ];
+
+export const updatePartnerAvailabilityValidation = [
+  body("isOnline")
+    .exists()
+    .withMessage("Availability status is required")
+    .isBoolean()
+    .withMessage("isOnline must be true or false"),
+];

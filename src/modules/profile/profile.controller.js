@@ -3,6 +3,7 @@ import {
   getMyProfileService,
   updateAvatarService,
   updateMyProfileService,
+  updatePartnerAvailabilityService,
 } from "./profile.service.js";
 
 import sendResponse from "../../utils/sendResponse.js";
@@ -92,6 +93,48 @@ export const updateAvatar = async (req, res) => {
       400,
       false,
       error.message || "Avatar update failed"
+    );
+  }
+};
+
+export const updatePartnerAvailability = async (
+  req,
+  res
+) => {
+  try {
+    if (
+      req.user.role !== "PARTNER" ||
+      req.user.portal !== "partner"
+    ) {
+      return sendResponse(
+        res,
+        403,
+        false,
+        "Only delivery partners can update availability"
+      );
+    }
+
+    const data =
+      await updatePartnerAvailabilityService(
+        req.user._id,
+        req.body.isOnline
+      );
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      data.isOnline
+        ? "You are now online"
+        : "You are now offline",
+      data
+    );
+  } catch (error) {
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
     );
   }
 };

@@ -171,3 +171,42 @@ export const updateAvatarService = async (userId, file) => {
     profile,
   };
 };
+
+export const updatePartnerAvailabilityService = async (
+  userId,
+  isOnline
+) => {
+  const profile = await Profile.findOne({
+    userId,
+    role: "PARTNER",
+  });
+
+  if (!profile) {
+    throw new Error("Partner profile not found");
+  }
+
+  // Partner cannot go offline during an active delivery
+  if (!isOnline && profile.currentDeliveryId) {
+    throw new Error(
+      "Complete the active delivery before going offline"
+    );
+  }
+
+  profile.isOnline = isOnline;
+
+  if (isOnline) {
+    profile.deliveryStatus = profile.currentDeliveryId
+      ? "BUSY"
+      : "AVAILABLE";
+  } else {
+    profile.deliveryStatus = "OFFLINE";
+  }
+
+  await profile.save();
+
+  return {
+    isOnline: profile.isOnline,
+    deliveryStatus: profile.deliveryStatus,
+    currentDeliveryId: profile.currentDeliveryId,
+  };
+};

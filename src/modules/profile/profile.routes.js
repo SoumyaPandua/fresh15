@@ -5,6 +5,7 @@ import {
   getMyProfile,
   updateAvatar,
   updateMyProfile,
+  updatePartnerAvailability,
 } from "./profile.controller.js";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
@@ -14,6 +15,7 @@ import { uploadSingleImage } from "../../middleware/upload.middleware.js";
 import {
   changePasswordValidation,
   updateProfileValidation,
+  updatePartnerAvailabilityValidation,
 } from "./profile.validation.js";
 
 const router = express.Router();
@@ -40,6 +42,13 @@ router.patch(
   changePasswordValidation,
   validateRequest,
   changePassword
+);
+
+router.patch(
+  "/availability",
+  updatePartnerAvailabilityValidation,
+  validateRequest,
+  updatePartnerAvailability
 );
 
 export default router;
