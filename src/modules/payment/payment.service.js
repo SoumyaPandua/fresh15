@@ -3,6 +3,7 @@ import Razorpay from "razorpay";
 
 import Payment from "./payment.model.js";
 import Order from "../order/order.model.js";
+import { sendNotificationService } from "../notification/notification.service.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -130,9 +131,31 @@ export const verifyPaymentService = async (
   await payment.save();
 
   order.paymentStatus = "PAID";
+
   order.orderStatus = "CONFIRMED";
 
   await order.save();
+
+  try {
+    await sendNotificationService({
+      userId: order.userId,
+      title: "Payment successful",
+      message: `Payment for order ${order.orderNumber} was successful.`,
+      type: "PAYMENT_SUCCESS",
+      channel: "IN_APP",
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+        paymentMethod: "ONLINE",
+      },
+      createdBy: userId,
+    });
+  } catch (error) {
+    console.error(
+      "Payment success notification failed:",
+      error.message
+    );
+  }
 
   return payment;
 };
@@ -141,8 +164,18 @@ export const paymentFailureService = async (
   userId,
   body
 ) => {
+  const order = await Order.findOne({
+    _id: body.orderId,
+    userId,
+  });
+
+  if (!order) {
+    throw new Error("Order not found");
+  }
+
   const payment = await Payment.findOne({
-    orderId: body.orderId,
+    orderId: order._id,
+    userId,
   });
 
   if (!payment) {
@@ -150,10 +183,31 @@ export const paymentFailureService = async (
   }
 
   payment.status = "FAILED";
-  payment.failureReason = body.reason;
+  payment.failureReason =
+    body.reason || "Payment failed";
   payment.updatedBy = userId;
 
   await payment.save();
+
+  try {
+    await sendNotificationService({
+      userId: order.userId,
+      title: "Payment failed",
+      message: `Payment for order ${order.orderNumber} could not be completed.`,
+      type: "PAYMENT_FAILED",
+      channel: "IN_APP",
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+      },
+      createdBy: userId,
+    });
+  } catch (error) {
+    console.error(
+      "Payment failure notification failed:",
+      error.message
+    );
+  }
 
   return payment;
 };

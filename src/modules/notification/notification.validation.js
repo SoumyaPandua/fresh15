@@ -8,12 +8,22 @@ export const createNotificationValidation = [
     .withMessage("Invalid User ID"),
 
   body("title")
+    .trim()
     .notEmpty()
-    .withMessage("Title is required"),
+    .withMessage("Title is required")
+    .isLength({ max: 150 })
+    .withMessage(
+      "Title cannot exceed 150 characters"
+    ),
 
   body("message")
+    .trim()
     .notEmpty()
-    .withMessage("Message is required"),
+    .withMessage("Message is required")
+    .isLength({ max: 1000 })
+    .withMessage(
+      "Message cannot exceed 1000 characters"
+    ),
 
   body("type")
     .notEmpty()
@@ -22,17 +32,31 @@ export const createNotificationValidation = [
       "WELCOME",
       "OTP",
       "PASSWORD_RESET",
+
       "ORDER_PLACED",
+      "ORDER_CONFIRMED",
+      "ORDER_CANCELLED",
+
       "PAYMENT_SUCCESS",
       "PAYMENT_FAILED",
-      "ORDER_CONFIRMED",
+      "REFUND_INITIATED",
+      "REFUND_COMPLETED",
+
       "RIDER_ASSIGNED",
+      "DELIVERY_ACCEPTED",
+      "PICKED_UP",
       "OUT_FOR_DELIVERY",
       "DELIVERED",
-      "CANCELLED",
+      "DELIVERY_REJECTED",
+
+      "REVIEW_CREATED",
+
       "PROMOTIONAL",
+      "GENERAL",
     ])
-    .withMessage("Invalid notification type"),
+    .withMessage(
+      "Invalid notification type"
+    ),
 
   body("channel")
     .optional()
@@ -42,5 +66,14 @@ export const createNotificationValidation = [
       "SMS",
       "PUSH",
     ])
-    .withMessage("Invalid notification channel"),
+    .withMessage(
+      "Invalid notification channel"
+    ),
+
+  body("metadata")
+    .optional()
+    .isObject()
+    .withMessage(
+      "Metadata must be an object"
+    ),
 ];

@@ -27,17 +27,30 @@ const notificationSchema = new mongoose.Schema(
         "WELCOME",
         "OTP",
         "PASSWORD_RESET",
+
         "ORDER_PLACED",
+        "ORDER_CONFIRMED",
+        "ORDER_CANCELLED",
+
         "PAYMENT_SUCCESS",
         "PAYMENT_FAILED",
-        "ORDER_CONFIRMED",
+        "REFUND_INITIATED",
+        "REFUND_COMPLETED",
+
         "RIDER_ASSIGNED",
+        "DELIVERY_ACCEPTED",
+        "PICKED_UP",
         "OUT_FOR_DELIVERY",
         "DELIVERED",
-        "CANCELLED",
+        "DELIVERY_REJECTED",
+
+        "REVIEW_CREATED",
+
         "PROMOTIONAL",
+        "GENERAL",
       ],
       required: true,
+      index: true,
     },
 
     channel: {
@@ -54,6 +67,7 @@ const notificationSchema = new mongoose.Schema(
     isRead: {
       type: Boolean,
       default: false,
+      index: true,
     },
 
     sentAt: {
@@ -67,7 +81,7 @@ const notificationSchema = new mongoose.Schema(
     },
 
     metadata: {
-      type: Object,
+      type: mongoose.Schema.Types.Mixed,
       default: {},
     },
 
@@ -87,6 +101,12 @@ const notificationSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+notificationSchema.index({
+  userId: 1,
+  isRead: 1,
+  createdAt: -1,
+});
 
 const Notification = mongoose.model(
   "Notification",

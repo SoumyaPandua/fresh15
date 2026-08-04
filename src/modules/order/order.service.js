@@ -7,6 +7,8 @@ import {
   markCouponUsedService,
 } from "../coupon/coupon.service.js";
 
+import { sendNotificationService } from "../notification/notification.service.js";
+
 export const getMyOrdersService = async (userId) => {
   return await Order.find({ userId })
     .populate("addressId")
@@ -134,6 +136,27 @@ export const createOrderService = async (userId, body) => {
   cart.calculateTotals();
 
   await cart.save();
+
+  // Notification should not break successful order creation
+  try {
+    await sendNotificationService({
+      userId,
+      title: "Order placed successfully",
+      message: `Your order ${order.orderNumber} has been placed successfully.`,
+      type: "ORDER_PLACED",
+      channel: "IN_APP",
+      metadata: {
+        orderId: order._id.toString(),
+        orderNumber: order.orderNumber,
+      },
+      createdBy: userId,
+    });
+  } catch (error) {
+    console.error(
+      "Order placed notification failed:",
+      error.message
+    );
+  }
 
   return await Order.findById(order._id)
     .populate("addressId")

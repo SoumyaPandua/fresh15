@@ -3,6 +3,8 @@ import Order from "../order/order.model.js";
 import User from "../user/user.model.js";
 import Profile from "../profile/profile.model.js";
 
+import { sendNotificationService } from "../notification/notification.service.js";
+
 const ACTIVE_DELIVERY_STATUSES = [
   "ASSIGNED",
   "ACCEPTED",
@@ -320,6 +322,7 @@ export const assignRiderService = async (
     );
   }
 
+  // Assign delivery
   delivery.riderId = riderId;
   delivery.status = "ASSIGNED";
   delivery.assignedAt = new Date();
@@ -328,20 +331,73 @@ export const assignRiderService = async (
 
   await delivery.save();
 
+  // Update partner availability
   profile.deliveryStatus = "BUSY";
   profile.currentDeliveryId =
     delivery._id;
 
   await profile.save();
 
-  await Order.findByIdAndUpdate(
-    delivery.orderId,
-    {
-      orderStatus: "CONFIRMED",
-      deliveryPartnerId: riderId,
-      updatedBy: userId,
-    }
-  );
+  // Update order
+  order.orderStatus = "CONFIRMED";
+  order.deliveryPartnerId = riderId;
+  order.updatedBy = userId;
+
+  await order.save();
+
+  // Notify delivery partner
+  try {
+    await sendNotificationService({
+      userId: riderId,
+      title: "New delivery assigned",
+      message:
+        `A new delivery has been assigned to you for order ${order.orderNumber}.`,
+      type: "RIDER_ASSIGNED",
+      channel: "IN_APP",
+      metadata: {
+        deliveryId:
+          delivery._id.toString(),
+        orderId:
+          order._id.toString(),
+        orderNumber:
+          order.orderNumber,
+      },
+      createdBy: userId,
+    });
+  } catch (error) {
+    console.error(
+      "Rider assignment notification failed:",
+      error.message
+    );
+  }
+
+  // Notify customer
+  try {
+    await sendNotificationService({
+      userId: order.userId,
+      title: "Delivery partner assigned",
+      message:
+        `A delivery partner has been assigned to order ${order.orderNumber}.`,
+      type: "RIDER_ASSIGNED",
+      channel: "IN_APP",
+      metadata: {
+        deliveryId:
+          delivery._id.toString(),
+        orderId:
+          order._id.toString(),
+        orderNumber:
+          order.orderNumber,
+        riderId:
+          rider._id.toString(),
+      },
+      createdBy: userId,
+    });
+  } catch (error) {
+    console.error(
+      "Customer assignment notification failed:",
+      error.message
+    );
+  }
 
   return await getPopulatedDelivery(
     delivery._id
@@ -367,7 +423,8 @@ export const updateDeliveryStatusService =
     if (userRole === "PARTNER") {
       if (
         !delivery.riderId ||
-        String(delivery.riderId) !== String(userId)
+        String(delivery.riderId) !==
+        String(userId)
       ) {
         throw new Error(
           "This delivery is not assigned to you"
@@ -375,8 +432,9 @@ export const updateDeliveryStatusService =
       }
     }
 
-    const nextStatus =
-      String(status || "").toUpperCase();
+    const nextStatus = String(
+      status || ""
+    ).toUpperCase();
 
     const allowedStatuses = [
       "ACCEPTED",
@@ -388,7 +446,9 @@ export const updateDeliveryStatusService =
     ];
 
     if (
-      !allowedStatuses.includes(nextStatus)
+      !allowedStatuses.includes(
+        nextStatus
+      )
     ) {
       throw new Error(
         "Invalid delivery status"
@@ -419,12 +479,24 @@ export const updateDeliveryStatusService =
       );
     }
 
+    const order =
+      await Order.findById(
+        delivery.orderId
+      );
+
+    if (!order) {
+      throw new Error(
+        "Order not found"
+      );
+    }
+
     const now = new Date();
 
     switch (nextStatus) {
       case "ACCEPTED":
         if (
-          delivery.status !== "ASSIGNED"
+          delivery.status !==
+          "ASSIGNED"
         ) {
           throw new Error(
             "Delivery must be assigned first"
@@ -444,7 +516,8 @@ export const updateDeliveryStatusService =
 
       case "PICKED_UP":
         if (
-          delivery.status !== "ACCEPTED"
+          delivery.status !==
+          "ACCEPTED"
         ) {
           throw new Error(
             "Delivery must be accepted first"
@@ -492,7 +565,7 @@ export const updateDeliveryStatusService =
 
         break;
 
-      case "REJECTED":
+      case "REJECTED": {
         if (
           delivery.status !==
           "ASSIGNED"
@@ -502,10 +575,10 @@ export const updateDeliveryStatusService =
           );
         }
 
-        delivery.rejectedAt = now;
-
         const rejectedRiderId =
           delivery.riderId;
+
+        delivery.rejectedAt = now;
 
         await releaseRider(
           rejectedRiderId,
@@ -514,24 +587,25 @@ export const updateDeliveryStatusService =
 
         delivery.riderId = null;
         delivery.status = "PENDING";
-        delivery.riderStatus = "OFFLINE";
+        delivery.riderStatus =
+          "OFFLINE";
         delivery.assignedAt = null;
         delivery.updatedBy = userId;
 
         await delivery.save();
 
-        await Order.findByIdAndUpdate(
-          delivery.orderId,
-          {
-            orderStatus: "CONFIRMED",
-            deliveryPartnerId: null,
-            updatedBy: userId,
-          }
-        );
+        order.orderStatus =
+          "CONFIRMED";
+        order.deliveryPartnerId =
+          null;
+        order.updatedBy = userId;
+
+        await order.save();
 
         return await getPopulatedDelivery(
           delivery._id
         );
+      }
 
       case "CANCELLED":
         delivery.cancelledAt = now;
@@ -548,7 +622,8 @@ export const updateDeliveryStatusService =
 
     const orderStatusMap = {
       ACCEPTED: "CONFIRMED",
-      PICKED_UP: "READY_FOR_PICKUP",
+      PICKED_UP:
+        "READY_FOR_PICKUP",
       OUT_FOR_DELIVERY:
         "OUT_FOR_DELIVERY",
       DELIVERED: "DELIVERED",
@@ -558,30 +633,26 @@ export const updateDeliveryStatusService =
     if (
       orderStatusMap[nextStatus]
     ) {
-      const orderUpdate = {
-        orderStatus:
-          orderStatusMap[nextStatus],
-        updatedBy: userId,
-      };
+      order.orderStatus =
+        orderStatusMap[nextStatus];
+
+      order.updatedBy = userId;
 
       if (
         nextStatus === "DELIVERED"
       ) {
-        orderUpdate.deliveryPartnerId =
+        order.deliveryPartnerId =
           delivery.riderId;
       }
 
       if (
         nextStatus === "CANCELLED"
       ) {
-        orderUpdate.deliveryPartnerId =
+        order.deliveryPartnerId =
           null;
       }
 
-      await Order.findByIdAndUpdate(
-        delivery.orderId,
-        orderUpdate
-      );
+      await order.save();
     }
 
     if (
@@ -599,30 +670,91 @@ export const updateDeliveryStatusService =
     }
 
     if (
-      nextStatus === "REJECTED"
-    ) {
-      await releaseRider(
-        delivery.riderId,
-        delivery._id
-      );
-
-      await Order.findByIdAndUpdate(
-        delivery.orderId,
-        {
-          orderStatus: "CONFIRMED",
-          deliveryPartnerId: null,
-          updatedBy: userId,
-        }
-      );
-    }
-
-    if (
       nextStatus === "CANCELLED"
     ) {
       await releaseRider(
         delivery.riderId,
         delivery._id
       );
+    }
+
+    // Send customer notification only
+    // after delivery/order updates succeed.
+    const notificationMap = {
+      ACCEPTED: {
+        title:
+          "Delivery accepted",
+        type:
+          "DELIVERY_ACCEPTED",
+        message:
+          `Your delivery partner accepted order ${order.orderNumber}.`,
+      },
+
+      PICKED_UP: {
+        title:
+          "Order picked up",
+        type: "PICKED_UP",
+        message:
+          `Order ${order.orderNumber} has been picked up by your delivery partner.`,
+      },
+
+      OUT_FOR_DELIVERY: {
+        title:
+          "Order is on the way",
+        type:
+          "OUT_FOR_DELIVERY",
+        message:
+          `Order ${order.orderNumber} is out for delivery.`,
+      },
+
+      DELIVERED: {
+        title:
+          "Order delivered",
+        type: "DELIVERED",
+        message:
+          `Order ${order.orderNumber} has been delivered successfully.`,
+      },
+
+      CANCELLED: {
+        title: "Delivery cancelled",
+        type: "ORDER_CANCELLED",
+        message:
+          `Delivery for order ${order.orderNumber} has been cancelled.`,
+      },
+    };
+
+    const notification =
+      notificationMap[nextStatus];
+
+    if (notification) {
+      try {
+        await sendNotificationService({
+          userId: order.userId,
+          title:
+            notification.title,
+          message:
+            notification.message,
+          type:
+            notification.type,
+          channel: "IN_APP",
+          metadata: {
+            deliveryId:
+              delivery._id.toString(),
+            orderId:
+              order._id.toString(),
+            orderNumber:
+              order.orderNumber,
+            deliveryStatus:
+              nextStatus,
+          },
+          createdBy: userId,
+        });
+      } catch (error) {
+        console.error(
+          "Delivery notification failed:",
+          error.message
+        );
+      }
     }
 
     return await getPopulatedDelivery(
@@ -661,4 +793,38 @@ export const deleteDeliveryService =
     await delivery.deleteOne();
 
     return;
+  };
+
+export const getCustomerDeliveryByOrderService =
+  async (orderId, userId) => {
+    const order = await Order.findOne({
+      _id: orderId,
+      userId,
+    });
+
+    if (!order) {
+      throw new Error("Order not found");
+    }
+
+    const delivery =
+      await Delivery.findOne({
+        orderId: order._id,
+      })
+        .populate(
+          "riderId",
+          "name phone profileImage"
+        )
+        .populate({
+          path: "orderId",
+          select:
+            "orderNumber orderStatus",
+        });
+
+    if (!delivery) {
+      throw new Error(
+        "Delivery not found"
+      );
+    }
+
+    return delivery;
   };

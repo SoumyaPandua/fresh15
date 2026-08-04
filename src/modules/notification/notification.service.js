@@ -2,6 +2,29 @@ import Notification from "./notification.model.js";
 import User from "../user/user.model.js";
 import sendEmail from "../../utils/sendEmail.js";
 
+const sendNotificationEmail = async (
+  user,
+  title,
+  message
+) => {
+  if (!user.email) {
+    throw new Error(
+      "User does not have an email address"
+    );
+  }
+
+  await sendEmail(
+    user.email,
+    title,
+    `
+      <div style="font-family:Arial,sans-serif">
+        <h2>${title}</h2>
+        <p>${message}</p>
+      </div>
+    `
+  );
+};
+
 export const createNotificationService =
   async (body, createdBy) => {
     const user = await User.findById(
@@ -12,32 +35,26 @@ export const createNotificationService =
       throw new Error("User not found");
     }
 
+    const channel =
+      body.channel || "IN_APP";
+
     const notification =
       await Notification.create({
         userId: body.userId,
         title: body.title,
         message: body.message,
         type: body.type,
-        channel:
-          body.channel || "IN_APP",
+        channel,
         metadata:
           body.metadata || {},
         createdBy,
       });
 
-    if (
-      body.channel === "EMAIL" ||
-      body.channel === undefined
-    ) {
-      await sendEmail(
-        user.email,
+    if (channel === "EMAIL") {
+      await sendNotificationEmail(
+        user,
         body.title,
-        `
-    <div style="font-family:Arial,sans-serif">
-      <h2>${body.title}</h2>
-      <p>${body.message}</p>
-    </div>
-  `
+        body.message
       );
     }
 
@@ -70,6 +87,14 @@ export const getNotificationByIdService =
     return notification;
   };
 
+export const getUnreadNotificationCountService =
+  async (userId) => {
+    return await Notification.countDocuments({
+      userId,
+      isRead: false,
+    });
+  };
+
 export const markAsReadService =
   async (id, userId) => {
     const notification =
@@ -84,13 +109,42 @@ export const markAsReadService =
       );
     }
 
-    notification.isRead = true;
-    notification.readAt = new Date();
-    notification.updatedBy = userId;
+    if (!notification.isRead) {
+      notification.isRead = true;
+      notification.readAt =
+        new Date();
+      notification.updatedBy =
+        userId;
 
-    await notification.save();
+      await notification.save();
+    }
 
     return notification;
+  };
+
+export const markAllAsReadService =
+  async (userId) => {
+    const now = new Date();
+
+    const result =
+      await Notification.updateMany(
+        {
+          userId,
+          isRead: false,
+        },
+        {
+          $set: {
+            isRead: true,
+            readAt: now,
+            updatedBy: userId,
+          },
+        }
+      );
+
+    return {
+      modifiedCount:
+        result.modifiedCount || 0,
+    };
   };
 
 export const deleteNotificationService =
@@ -131,6 +185,6 @@ export const sendNotificationService =
         channel,
         metadata,
       },
-      createdBy
+      createdBy || userId
     );
   };

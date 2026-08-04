@@ -230,3 +230,29 @@ export const deleteDelivery = async (
     );
   }
 };
+
+export const getCustomerDeliveryByOrder =
+  async (req, res) => {
+    try {
+      const data =
+        await getCustomerDeliveryByOrderService(
+          req.params.orderId,
+          req.user._id
+        );
+
+      return sendResponse(
+        res,
+        200,
+        true,
+        "Delivery fetched successfully",
+        data
+      );
+    } catch (error) {
+      return sendResponse(
+        res,
+        400,
+        false,
+        error.message
+      );
+    }
+  };

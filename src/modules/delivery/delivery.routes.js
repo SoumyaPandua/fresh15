@@ -19,6 +19,7 @@ import {
   getMyActiveDelivery,
   getMyDeliveries,
   updateDeliveryStatus,
+  getCustomerDeliveryByOrder,
 } from "./delivery.controller.js";
 
 const router = express.Router();
@@ -71,6 +72,12 @@ router.patch(
   updateDeliveryStatusValidation,
   validateRequest,
   updateDeliveryStatus
+);
+
+router.get(
+  "/order/:orderId",
+  authorize("CUSTOMER"),
+  getCustomerDeliveryByOrder
 );
 
 router.get(
