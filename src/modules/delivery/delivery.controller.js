@@ -9,6 +9,7 @@ import {
   getMyActiveDeliveryService,
   getMyDeliveriesService,
   updateDeliveryStatusService,
+  getCustomerDeliveryByOrderService
 } from "./delivery.service.js";
 
 export const getAllDeliveries = async (
