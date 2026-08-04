@@ -7,7 +7,6 @@ const deliverySchema = new mongoose.Schema(
       ref: "Order",
       required: true,
       unique: true,
-      index: true,
     },
 
     riderId: {
@@ -62,9 +61,29 @@ const deliverySchema = new mongoose.Schema(
       default: null,
     },
 
+    rejectedAt: {
+      type: Date,
+      default: null,
+    },
+
+    cancelledAt: {
+      type: Date,
+      default: null,
+    },
+
     estimatedDeliveryTime: {
       type: Date,
       default: null,
+    },
+
+    deliveryOtp: {
+      type: String,
+      default: null,
+    },
+
+    deliveryOtpVerified: {
+      type: Boolean,
+      default: false,
     },
 
     deliveryCharge: {

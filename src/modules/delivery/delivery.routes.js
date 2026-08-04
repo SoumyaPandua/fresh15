@@ -1,6 +1,7 @@
 import express from "express";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
 
 import {
@@ -15,6 +16,8 @@ import {
   deleteDelivery,
   getAllDeliveries,
   getDeliveryById,
+  getMyActiveDelivery,
+  getMyDeliveries,
   updateDeliveryStatus,
 } from "./delivery.controller.js";
 
@@ -22,18 +25,31 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
+/* ---------------- Partner ---------------- */
+
 router.get(
-  "/",
-  getAllDeliveries
+  "/my/active",
+  authorize("PARTNER"),
+  getMyActiveDelivery
 );
 
 router.get(
-  "/:id",
-  getDeliveryById
+  "/my",
+  authorize("PARTNER"),
+  getMyDeliveries
+);
+
+/* ---------------- Admin ---------------- */
+
+router.get(
+  "/",
+  authorize("ADMIN", "SUPER_ADMIN"),
+  getAllDeliveries
 );
 
 router.post(
   "/",
+  authorize("ADMIN", "SUPER_ADMIN"),
   createDeliveryValidation,
   validateRequest,
   createDelivery
@@ -41,20 +57,31 @@ router.post(
 
 router.patch(
   "/:id/assign",
+  authorize("ADMIN", "SUPER_ADMIN"),
   assignRiderValidation,
   validateRequest,
   assignRider
 );
 
+/* ---------------- Shared ---------------- */
+
 router.patch(
   "/:id/status",
+  authorize("ADMIN", "SUPER_ADMIN", "PARTNER"),
   updateDeliveryStatusValidation,
   validateRequest,
   updateDeliveryStatus
 );
 
+router.get(
+  "/:id",
+  authorize("ADMIN", "SUPER_ADMIN", "PARTNER"),
+  getDeliveryById
+);
+
 router.delete(
   "/:id",
+  authorize("ADMIN", "SUPER_ADMIN"),
   deleteDelivery
 );
 

@@ -6,6 +6,8 @@ import {
   deleteDeliveryService,
   getAllDeliveriesService,
   getDeliveryByIdService,
+  getMyActiveDeliveryService,
+  getMyDeliveriesService,
   updateDeliveryStatusService,
 } from "./delivery.service.js";
 
@@ -49,6 +51,62 @@ export const getDeliveryById = async (
       200,
       true,
       "Delivery fetched successfully",
+      data
+    );
+  } catch (error) {
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
+    );
+  }
+};
+
+export const getMyDeliveries = async (
+  req,
+  res
+) => {
+  try {
+    const data =
+      await getMyDeliveriesService(
+        req.user._id
+      );
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      "My deliveries fetched successfully",
+      data
+    );
+  } catch (error) {
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
+    );
+  }
+};
+
+export const getMyActiveDelivery = async (
+  req,
+  res
+) => {
+  try {
+    const data =
+      await getMyActiveDeliveryService(
+        req.user._id
+      );
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      data
+        ? "Active delivery fetched successfully"
+        : "No active delivery",
       data
     );
   } catch (error) {
@@ -125,7 +183,8 @@ export const updateDeliveryStatus =
         await updateDeliveryStatusService(
           req.params.id,
           req.body.status,
-          req.user._id
+          req.user._id,
+          req.user.role
         );
 
       return sendResponse(

@@ -78,6 +78,34 @@ const profileSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    isOnline: {
+      type: Boolean,
+      default: false,
+    },
+
+    deliveryStatus: {
+      type: String,
+      enum: ["OFFLINE", "AVAILABLE", "BUSY"],
+      default: "OFFLINE",
+    },
+
+    currentDeliveryId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Delivery",
+      default: null,
+    },
+
+    totalDeliveries: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+
+    totalEarnings: {
+      type: Number,
+      default: 0,
+      min: 0,
+    },
 
     // Admin
     designation: {
