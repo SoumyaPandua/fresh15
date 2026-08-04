@@ -76,6 +76,25 @@ export const getMyReviewsService = async (
     });
 };
 
+export const getAllReviewsService = async () => {
+  return await Review.find()
+    .populate(
+      "userId",
+      "name email phone profileImage"
+    )
+    .populate(
+      "productId",
+      "name images slug averageRating totalReviews"
+    )
+    .populate(
+      "orderId",
+      "orderNumber orderStatus"
+    )
+    .sort({
+      createdAt: -1,
+    });
+};
+
 export const getReviewByIdService = async (
   id
 ) => {

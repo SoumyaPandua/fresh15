@@ -3,6 +3,7 @@ import sendResponse from "../../utils/sendResponse.js";
 import {
   createReviewService,
   deleteReviewService,
+  getAllReviewsService,
   getMyReviewsService,
   getProductReviewsService,
   getReviewByIdService,
@@ -45,6 +46,31 @@ export const getMyReviews = async (
       await getMyReviewsService(
         req.user._id
       );
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      "Reviews fetched successfully",
+      reviews
+    );
+  } catch (error) {
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
+    );
+  }
+};
+
+export const getAllReviews = async (
+  req,
+  res
+) => {
+  try {
+    const reviews =
+      await getAllReviewsService();
 
     return sendResponse(
       res,

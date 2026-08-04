@@ -11,6 +11,7 @@ import {
 import {
   createReview,
   deleteReview,
+  getAllReviews,
   getMyReviews,
   getProductReviews,
   getReviewById,
@@ -35,6 +36,12 @@ router.get(
   "/my-reviews",
   authMiddleware,
   getMyReviews
+);
+
+router.get(
+  "/all",
+  authMiddleware,
+  getAllReviews
 );
 
 router.get(
