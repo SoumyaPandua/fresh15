@@ -14,7 +14,7 @@ export const getProductReviews = async (
   res
 ) => {
   try {
-    const data =
+    const reviews =
       await getProductReviewsService(
         req.params.productId
       );
@@ -23,8 +23,8 @@ export const getProductReviews = async (
       res,
       200,
       true,
-      "Reviews fetched successfully",
-      data
+      "Product reviews fetched successfully",
+      reviews
     );
   } catch (error) {
     return sendResponse(
@@ -41,7 +41,7 @@ export const getMyReviews = async (
   res
 ) => {
   try {
-    const data =
+    const reviews =
       await getMyReviewsService(
         req.user._id
       );
@@ -51,7 +51,7 @@ export const getMyReviews = async (
       200,
       true,
       "Reviews fetched successfully",
-      data
+      reviews
     );
   } catch (error) {
     return sendResponse(
@@ -68,7 +68,7 @@ export const getReviewById = async (
   res
 ) => {
   try {
-    const data =
+    const review =
       await getReviewByIdService(
         req.params.id
       );
@@ -78,7 +78,7 @@ export const getReviewById = async (
       200,
       true,
       "Review fetched successfully",
-      data
+      review
     );
   } catch (error) {
     return sendResponse(
@@ -95,7 +95,7 @@ export const createReview = async (
   res
 ) => {
   try {
-    const data =
+    const review =
       await createReviewService(
         req.user._id,
         req.body
@@ -105,8 +105,8 @@ export const createReview = async (
       res,
       201,
       true,
-      "Review submitted successfully",
-      data
+      "Review created successfully",
+      review
     );
   } catch (error) {
     return sendResponse(
@@ -123,7 +123,7 @@ export const updateReview = async (
   res
 ) => {
   try {
-    const data =
+    const review =
       await updateReviewService(
         req.params.id,
         req.user._id,
@@ -135,7 +135,7 @@ export const updateReview = async (
       200,
       true,
       "Review updated successfully",
-      data
+      review
     );
   } catch (error) {
     return sendResponse(

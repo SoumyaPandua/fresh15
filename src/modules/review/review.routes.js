@@ -19,25 +19,33 @@ import {
 
 const router = express.Router();
 
-router.use(authMiddleware);
-
+/*
+ * Public route
+ * Customers/guests can view reviews without authentication.
+ */
 router.get(
   "/product/:productId",
   getProductReviews
 );
 
+/*
+ * Authenticated routes
+ */
 router.get(
   "/my-reviews",
+  authMiddleware,
   getMyReviews
 );
 
 router.get(
   "/:id",
+  authMiddleware,
   getReviewById
 );
 
 router.post(
   "/",
+  authMiddleware,
   createReviewValidation,
   validateRequest,
   createReview
@@ -45,6 +53,7 @@ router.post(
 
 router.put(
   "/:id",
+  authMiddleware,
   updateReviewValidation,
   validateRequest,
   updateReview
@@ -52,6 +61,7 @@ router.put(
 
 router.delete(
   "/:id",
+  authMiddleware,
   deleteReview
 );
 
