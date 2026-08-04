@@ -1,30 +1,6 @@
-import nodemailer from "nodemailer";
-
 import Notification from "./notification.model.js";
-import User from "../auth/user.model.js";
-
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: Number(process.env.SMTP_PORT),
-  secure: false,
-  auth: {
-    user: process.env.SMTP_EMAIL,
-    pass: process.env.SMTP_PASSWORD,
-  },
-});
-
-export const sendEmail = async ({
-  to,
-  subject,
-  html,
-}) => {
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM,
-    to,
-    subject,
-    html,
-  });
-};
+import User from "../user/user.model.js";
+import sendEmail from "../../utils/sendEmail.js";
 
 export const createNotificationService =
   async (body, createdBy) => {
@@ -53,16 +29,16 @@ export const createNotificationService =
       body.channel === "EMAIL" ||
       body.channel === undefined
     ) {
-      await sendEmail({
-        to: user.email,
-        subject: body.title,
-        html: `
-            <div style="font-family:Arial,sans-serif">
-                <h2>${body.title}</h2>
-                <p>${body.message}</p>
-            </div>
-        `,
-      });
+      await sendEmail(
+        user.email,
+        body.title,
+        `
+    <div style="font-family:Arial,sans-serif">
+      <h2>${body.title}</h2>
+      <p>${body.message}</p>
+    </div>
+  `
+      );
     }
 
     return notification;

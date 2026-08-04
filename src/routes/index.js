@@ -37,6 +37,6 @@ router.use("/order", orderRoutes);
 router.use("/payment", paymentRoutes);
 router.use("/delivery", deliveryRoutes);
 router.use("/review", reviewRoutes);
-// router.use("/notification", notificationRoutes);
+router.use("/notification", notificationRoutes);
 
 export default router;
