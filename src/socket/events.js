@@ -13,23 +13,6 @@ const registerSocketEvents = (io) => {
     io.on("connection", async (socket) => {
         console.log(`🟢 Socket Connected: ${socket.id}`);
 
-        if (socket.user.role === "PARTNER") {
-
-            await User.findByIdAndUpdate(
-                socket.user._id,
-                {
-                    isOnline: true,
-                    lastSeen: new Date(),
-                }
-            );
-
-            emitPartnerOnlineStatus(
-                socket.user._id,
-                true
-            );
-
-        }
-
         // ==========================
         // ADMIN
         // ==========================
@@ -65,12 +48,27 @@ const registerSocketEvents = (io) => {
         // ==========================
         // PARTNER
         // ==========================
-        socket.on("join:partner", () => {
+        socket.on("join:partner", async () => {
+
             socket.join(partnerRoom(socket.user._id));
+
+            await User.findByIdAndUpdate(
+                socket.user._id,
+                {
+                    isOnline: true,
+                    lastSeen: new Date(),
+                }
+            );
+
+            emitPartnerOnlineStatus(
+                socket.user._id,
+                true
+            );
 
             console.log(
                 `🚚 Partner ${socket.user._id} joined`
             );
+
         });
 
         // ==========================
