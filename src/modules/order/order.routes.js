@@ -41,12 +41,6 @@ router.post(
 );
 
 router.patch(
-    "/:id/assign-partner",
-    authorize("admin"),
-    assignPartnerController
-);
-
-router.patch(
   "/:id/status",
   authorize("ADMIN"),
   updateOrderStatusValidation,

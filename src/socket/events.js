@@ -7,7 +7,8 @@ import {
 
 import User from "../modules/user/user.model.js";
 import { emitPartnerLocation, emitPartnerOnlineStatus } from "./emitters.js";
-import Order from "../modules/order/order.model.js";
+import Delivery from "../modules/delivery/delivery.model.js";
+import Delivery from "../modules/delivery/delivery.model.js";
 
 const registerSocketEvents = (io) => {
     io.on("connection", async (socket) => {
@@ -90,19 +91,22 @@ const registerSocketEvents = (io) => {
                         return;
                     }
 
-                    const order = await Order.findById(orderId);
+                    const delivery = await Delivery.findOne({
+                        orderId,
+                        riderId: socket.user._id,
+                        status: {
+                            $in: [
+                                "ASSIGNED",
+                                "ACCEPTED",
+                                "PICKED_UP",
+                                "OUT_FOR_DELIVERY",
+                            ],
+                        },
+                    });
 
-                    if (!order) {
-                        return;
-                    }
-
-                    if (
-                        !order.assignedPartner ||
-                        order.assignedPartner.toString() !==
-                        socket.user._id.toString()
-                    ) {
+                    if (!delivery) {
                         console.log(
-                            "❌ Unauthorized location update"
+                            "❌ Rider is not assigned to this delivery"
                         );
                         return;
                     }

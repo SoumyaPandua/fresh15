@@ -4,6 +4,10 @@ import User from "../user/user.model.js";
 import Profile from "../profile/profile.model.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
+import {
+  emitPartnerAssigned,
+  emitOrderUpdated,
+} from "../../socket/emitters.js";
 
 const ACTIVE_DELIVERY_STATUSES = [
   "ASSIGNED",
@@ -345,6 +349,18 @@ export const assignRiderService = async (
 
   await order.save();
 
+  emitPartnerAssigned(
+    riderId,
+    {
+      deliveryId: delivery._id,
+      orderId: order._id,
+      customerId: order.userId,
+      riderId,
+      orderNumber: order.orderNumber,
+      assignedAt: delivery.assignedAt,
+    }
+  );
+
   // Notify delivery partner
   try {
     await sendNotificationService({
@@ -601,6 +617,17 @@ export const updateDeliveryStatusService =
         order.updatedBy = userId;
 
         await order.save();
+
+        emitOrderUpdated(
+          order._id,
+          {
+            orderId: order._id,
+            deliveryId: delivery._id,
+            orderStatus: order.orderStatus,
+            deliveryStatus: delivery.status,
+            updatedAt: new Date(),
+          }
+        );
 
         return await getPopulatedDelivery(
           delivery._id

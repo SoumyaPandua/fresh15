@@ -210,43 +210,6 @@ export const updateOrderStatusService = async (
   return order;
 };
 
-export const assignPartnerService = async (
-  orderId,
-  partnerId,
-  adminId
-) => {
-  const order = await Order.findById(orderId);
-
-  if (!order) {
-    throw new Error("Order not found");
-  }
-
-  const partner = await User.findById(partnerId);
-
-  if (!partner) {
-    throw new Error("Partner not found");
-  }
-
-  if (partner.role !== "PARTNER") {
-    throw new Error("Selected user is not a delivery partner");
-  }
-
-  order.assignedPartner = partnerId;
-  order.assignedAt = new Date();
-  order.updatedBy = adminId;
-
-  await order.save();
-
-  emitPartnerAssigned(partnerId, {
-    orderId: order._id,
-    customerId: order.userId,
-    partnerId,
-    assignedAt: order.assignedAt,
-  });
-
-  return order;
-};
-
 export const deleteOrderService = async (id) => {
   const order = await Order.findById(id);
 

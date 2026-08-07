@@ -38,16 +38,6 @@ const orderItemSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
-    assignedPartner: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-
-    assignedAt: {
-      type: Date,
-      default: null,
-    },
   },
   {
     _id: false,

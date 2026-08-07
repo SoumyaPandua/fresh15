@@ -7,7 +7,6 @@ import {
   getOrderByIdService,
   getAllOrdersService,
   updateOrderStatusService,
-  assignPartnerService
 } from "./order.service.js";
 
 export const getMyOrders = async (req, res) => {
@@ -61,30 +60,6 @@ export const createOrder = async (req, res) => {
     );
   } catch (error) {
     return sendResponse(res, 400, false, error.message);
-  }
-};
-
-export const assignPartnerController = async (
-  req,
-  res,
-  next
-) => {
-  try {
-    const order = await assignPartnerService(
-      req.params.id,
-      req.body.partnerId,
-      req.user._id
-    );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Partner assigned successfully",
-      order
-    );
-  } catch (error) {
-    next(error);
   }
 };
 
