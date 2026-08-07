@@ -16,7 +16,6 @@ import {
   getOrderById,
   updateOrderStatus,
   getAllOrders,
-  assignPartnerController
 } from "./order.controller.js";
 
 const router = express.Router();

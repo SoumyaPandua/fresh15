@@ -8,7 +8,6 @@ import {
 import User from "../modules/user/user.model.js";
 import { emitPartnerLocation, emitPartnerOnlineStatus } from "./emitters.js";
 import Delivery from "../modules/delivery/delivery.model.js";
-import Delivery from "../modules/delivery/delivery.model.js";
 
 const registerSocketEvents = (io) => {
     io.on("connection", async (socket) => {
