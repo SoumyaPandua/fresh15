@@ -29,6 +29,7 @@
     "multer-storage-cloudinary": "^4.0.0",
     "razorpay": "^2.9.8",
     "slugify": "^1.6.9",
+    "socket.io": "^4.8.3",
     "streamifier": "^0.1.1"
   },
   "devDependencies": {

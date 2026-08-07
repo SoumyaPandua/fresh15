@@ -36,6 +36,20 @@ const authSchema = new mongoose.Schema(
             type: String,
             default: ""
         },
+        currentLocation: {
+            latitude: {
+                type: Number,
+                default: null,
+            },
+            longitude: {
+                type: Number,
+                default: null,
+            },
+            updatedAt: {
+                type: Date,
+                default: null,
+            },
+        },
         isEmailVerified: {
             type: Boolean,
             default: false
@@ -43,7 +57,16 @@ const authSchema = new mongoose.Schema(
         isActive: {
             type: Boolean,
             default: true
-        }
+        },
+        isOnline: {
+            type: Boolean,
+            default: false,
+        },
+
+        lastSeen: {
+            type: Date,
+            default: null,
+        },
     },
     {
         timestamps: true

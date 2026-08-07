@@ -6,8 +6,10 @@ import {
   applyCouponService,
   markCouponUsedService,
 } from "../coupon/coupon.service.js";
+import User from "../user/user.model.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
+import { emitNewOrder, emitOrderUpdated, emitPartnerAssigned } from "../../socket/emitters.js";
 
 export const getMyOrdersService = async (userId) => {
   return await Order.find({ userId })
@@ -128,6 +130,18 @@ export const createOrderService = async (userId, body) => {
     createdBy: userId,
   });
 
+  emitNewOrder({
+    orderId: order._id,
+    orderNumber: order.orderNumber,
+    customerId: order.userId,
+    totalItems: order.totalItems,
+    totalQuantity: order.totalQuantity,
+    grandTotal: order.grandTotal,
+    paymentMethod: order.paymentMethod,
+    orderStatus: order.orderStatus,
+    createdAt: order.createdAt,
+  });
+
   if (couponId) {
     await markCouponUsedService(couponId);
   }
@@ -185,6 +199,50 @@ export const updateOrderStatusService = async (
   }
 
   await order.save();
+
+  emitOrderUpdated(order._id, {
+    orderId: order._id,
+    orderStatus: order.orderStatus,
+    paymentStatus: order.paymentStatus,
+    updatedAt: order.updatedAt,
+  });
+
+  return order;
+};
+
+export const assignPartnerService = async (
+  orderId,
+  partnerId,
+  adminId
+) => {
+  const order = await Order.findById(orderId);
+
+  if (!order) {
+    throw new Error("Order not found");
+  }
+
+  const partner = await User.findById(partnerId);
+
+  if (!partner) {
+    throw new Error("Partner not found");
+  }
+
+  if (partner.role !== "PARTNER") {
+    throw new Error("Selected user is not a delivery partner");
+  }
+
+  order.assignedPartner = partnerId;
+  order.assignedAt = new Date();
+  order.updatedBy = adminId;
+
+  await order.save();
+
+  emitPartnerAssigned(partnerId, {
+    orderId: order._id,
+    customerId: order.userId,
+    partnerId,
+    assignedAt: order.assignedAt,
+  });
 
   return order;
 };

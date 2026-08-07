@@ -38,6 +38,16 @@ const orderItemSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    assignedPartner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    assignedAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     _id: false,
@@ -154,6 +164,17 @@ const orderSchema = new mongoose.Schema(
         "CANCELLED",
       ],
       default: "PENDING",
+    },
+
+    assignedPartner: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+    },
+
+    assignedAt: {
+      type: Date,
+      default: null,
     },
 
     notes: {

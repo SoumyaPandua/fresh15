@@ -15,7 +15,8 @@ import {
   getMyOrders,
   getOrderById,
   updateOrderStatus,
-  getAllOrders
+  getAllOrders,
+  assignPartnerController
 } from "./order.controller.js";
 
 const router = express.Router();
@@ -37,6 +38,12 @@ router.post(
   createOrderValidation,
   validateRequest,
   createOrder
+);
+
+router.patch(
+    "/:id/assign-partner",
+    authorize("admin"),
+    assignPartnerController
 );
 
 router.patch(
