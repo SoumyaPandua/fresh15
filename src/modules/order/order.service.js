@@ -9,7 +9,10 @@ import {
 import User from "../user/user.model.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
-import { emitNewOrder, emitOrderUpdated, emitPartnerAssigned } from "../../socket/emitters.js";
+import {
+  emitNewOrder,
+  emitOrderUpdated,
+} from "../../socket/emitters.js";
 
 export const getMyOrdersService = async (userId) => {
   return await Order.find({ userId })
@@ -202,6 +205,7 @@ export const updateOrderStatusService = async (
 
   emitOrderUpdated(order._id, {
     orderId: order._id,
+    customerId: order.userId,
     orderStatus: order.orderStatus,
     paymentStatus: order.paymentStatus,
     updatedAt: order.updatedAt,

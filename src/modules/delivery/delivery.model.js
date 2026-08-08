@@ -1,5 +1,45 @@
 import mongoose from "mongoose";
 
+const locationSchema = new mongoose.Schema(
+  {
+    latitude: {
+      type: Number,
+      min: -90,
+      max: 90,
+      default: null,
+    },
+    longitude: {
+      type: Number,
+      min: -180,
+      max: 180,
+      default: null,
+    },
+    accuracy: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    speed: {
+      type: Number,
+      min: 0,
+      default: null,
+    },
+    heading: {
+      type: Number,
+      min: 0,
+      max: 360,
+      default: null,
+    },
+    updatedAt: {
+      type: Date,
+      default: null,
+    },
+  },
+  {
+    _id: false,
+  }
+);
+
 const deliverySchema = new mongoose.Schema(
   {
     orderId: {
@@ -73,6 +113,11 @@ const deliverySchema = new mongoose.Schema(
 
     estimatedDeliveryTime: {
       type: Date,
+      default: null,
+    },
+
+    currentLocation: {
+      type: locationSchema,
       default: null,
     },
 

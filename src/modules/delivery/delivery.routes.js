@@ -20,6 +20,7 @@ import {
   getMyDeliveries,
   updateDeliveryStatus,
   getCustomerDeliveryByOrder,
+  getDeliveryRoute,
 } from "./delivery.controller.js";
 
 const router = express.Router();
@@ -78,6 +79,17 @@ router.get(
   "/order/:orderId",
   authorize("CUSTOMER"),
   getCustomerDeliveryByOrder
+);
+
+router.get(
+  "/:id/route",
+  authorize(
+    "ADMIN",
+    "SUPER_ADMIN",
+    "PARTNER",
+    "CUSTOMER"
+  ),
+  getDeliveryRoute
 );
 
 router.get(

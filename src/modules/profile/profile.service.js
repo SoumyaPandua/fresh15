@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import User from "../user/user.model.js";
 import Profile from "./profile.model.js";
 import { uploadImage } from "../../config/cloudinary.js";
+import { emitPartnerAvailability } from "../../socket/emitters.js";
 
 export const getMyProfileService = async (userId) => {
   const user = await User.findById(userId).select("-password");
@@ -203,6 +204,17 @@ export const updatePartnerAvailabilityService = async (
   }
 
   await profile.save();
+
+  emitPartnerAvailability(
+    userId,
+    {
+      isOnline: profile.isOnline,
+      deliveryStatus:
+        profile.deliveryStatus,
+      currentDeliveryId:
+        profile.currentDeliveryId,
+    }
+  );
 
   return {
     isOnline: profile.isOnline,

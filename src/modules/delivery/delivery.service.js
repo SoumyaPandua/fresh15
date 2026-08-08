@@ -7,6 +7,7 @@ import { sendNotificationService } from "../notification/notification.service.js
 import {
   emitPartnerAssigned,
   emitOrderUpdated,
+  emitDeliveryUpdated,
 } from "../../socket/emitters.js";
 
 const ACTIVE_DELIVERY_STATUSES = [
@@ -20,15 +21,55 @@ const getPopulatedDelivery = async (id) => {
   return await Delivery.findById(id)
     .populate({
       path: "orderId",
-      populate: {
-        path: "addressId",
-      },
+      populate: [
+        {
+          path: "addressId",
+        },
+        {
+          path: "userId",
+          select: "name email phone",
+        },
+      ],
     })
     .populate(
       "riderId",
       "name email phone profileImage role portal"
     );
 };
+
+const buildDeliveryRealtimePayload = (
+  delivery,
+  order
+) => ({
+  deliveryId: delivery._id,
+  orderId: order._id,
+  orderNumber: order.orderNumber,
+  customerId: order.userId,
+  riderId: delivery.riderId,
+  deliveryStatus: delivery.status,
+  orderStatus: order.orderStatus,
+  riderStatus: delivery.riderStatus,
+  assignedAt: delivery.assignedAt,
+  acceptedAt: delivery.acceptedAt,
+  pickedUpAt: delivery.pickedUpAt,
+  deliveredAt: delivery.deliveredAt,
+  rejectedAt: delivery.rejectedAt,
+  cancelledAt: delivery.cancelledAt,
+  estimatedDeliveryTime:
+    delivery.estimatedDeliveryTime,
+  currentLocation:
+    delivery.currentLocation,
+  destination:
+    order.addressId
+      ? {
+          latitude:
+            order.addressId.latitude,
+          longitude:
+            order.addressId.longitude,
+        }
+      : null,
+  updatedAt: delivery.updatedAt,
+});
 
 const releaseRider = async (
   riderId,
@@ -175,7 +216,7 @@ export const createDeliveryService = async (
 
   const order = await Order.findById(
     body.orderId
-  );
+  ).populate("addressId");
 
   if (!order) {
     throw new Error("Order not found");
@@ -215,6 +256,14 @@ export const createDeliveryService = async (
       createdBy: userId,
     });
 
+  emitDeliveryUpdated(
+    delivery._id,
+    buildDeliveryRealtimePayload(
+      delivery,
+      order
+    )
+  );
+
   return await getPopulatedDelivery(
     delivery._id
   );
@@ -246,7 +295,7 @@ export const assignRiderService = async (
 
   const order = await Order.findById(
     delivery.orderId
-  );
+  ).populate("addressId");
 
   if (!order) {
     throw new Error("Order not found");
@@ -331,6 +380,7 @@ export const assignRiderService = async (
   delivery.status = "ASSIGNED";
   delivery.assignedAt = new Date();
   delivery.riderStatus = "BUSY";
+  delivery.currentLocation = null;
   delivery.updatedBy = userId;
 
   await delivery.save();
@@ -349,16 +399,34 @@ export const assignRiderService = async (
 
   await order.save();
 
+  const assignmentPayload = {
+    deliveryId: delivery._id,
+    orderId: order._id,
+    customerId: order.userId,
+    riderId,
+    orderNumber: order.orderNumber,
+    deliveryStatus: delivery.status,
+    orderStatus: order.orderStatus,
+    assignedAt: delivery.assignedAt,
+    destination:
+      order.addressId
+        ? {
+            latitude:
+              order.addressId.latitude,
+            longitude:
+              order.addressId.longitude,
+          }
+        : null,
+  };
+
   emitPartnerAssigned(
     riderId,
-    {
-      deliveryId: delivery._id,
-      orderId: order._id,
-      customerId: order.userId,
-      riderId,
-      orderNumber: order.orderNumber,
-      assignedAt: delivery.assignedAt,
-    }
+    assignmentPayload
+  );
+
+  emitDeliveryUpdated(
+    delivery._id,
+    assignmentPayload
   );
 
   // Notify delivery partner
@@ -498,7 +566,7 @@ export const updateDeliveryStatusService =
     const order =
       await Order.findById(
         delivery.orderId
-      );
+      ).populate("addressId");
 
     if (!order) {
       throw new Error(
@@ -703,7 +771,26 @@ export const updateDeliveryStatusService =
         delivery.riderId,
         delivery._id
       );
+
+      delivery.currentLocation = null;
+      await delivery.save();
     }
+
+    const realtimePayload =
+      buildDeliveryRealtimePayload(
+        delivery,
+        order
+      );
+
+    emitOrderUpdated(
+      order._id,
+      realtimePayload
+    );
+
+    emitDeliveryUpdated(
+      delivery._id,
+      realtimePayload
+    );
 
     // Send customer notification only
     // after delivery/order updates succeed.
@@ -789,6 +876,164 @@ export const updateDeliveryStatusService =
     );
   };
 
+export const getDeliveryRouteService = async (
+  id,
+  userId,
+  userRole
+) => {
+  const delivery =
+    await getPopulatedDelivery(id);
+
+  if (!delivery) {
+    throw new Error("Delivery not found");
+  }
+
+  const riderId =
+    delivery.riderId?._id ??
+    delivery.riderId;
+
+  if (
+    userRole === "PARTNER" &&
+    String(riderId) !== String(userId)
+  ) {
+    throw new Error(
+      "This delivery is not assigned to you"
+    );
+  }
+
+  const order =
+    delivery.orderId;
+
+  if (
+    userRole === "CUSTOMER" &&
+    String(
+      order?.userId?._id ??
+      order?.userId
+    ) !== String(userId)
+  ) {
+    throw new Error(
+      "This delivery does not belong to you"
+    );
+  }
+
+  const current =
+    delivery.currentLocation;
+
+  const destination =
+    order?.addressId;
+
+  if (
+    !current ||
+    !Number.isFinite(
+      Number(current.latitude)
+    ) ||
+    !Number.isFinite(
+      Number(current.longitude)
+    )
+  ) {
+    throw new Error(
+      "Live partner location is not available yet"
+    );
+  }
+
+  if (
+    !destination ||
+    !Number.isFinite(
+      Number(destination.latitude)
+    ) ||
+    !Number.isFinite(
+      Number(destination.longitude)
+    )
+  ) {
+    throw new Error(
+      "Delivery address coordinates are not available"
+    );
+  }
+
+  const baseUrl =
+    process.env.OSRM_BASE_URL ||
+    "https://router.project-osrm.org";
+
+  const sourceLat =
+    Number(current.latitude);
+  const sourceLng =
+    Number(current.longitude);
+  const destinationLat =
+    Number(destination.latitude);
+  const destinationLng =
+    Number(destination.longitude);
+
+  const controller =
+    new AbortController();
+
+  const timeout = setTimeout(
+    () => controller.abort(),
+    8000
+  );
+
+  try {
+    const url =
+      `${baseUrl.replace(/\/$/, "")}` +
+      `/route/v1/driving/` +
+      `${sourceLng},${sourceLat};` +
+      `${destinationLng},${destinationLat}` +
+      `?overview=full&geometries=geojson&steps=false`;
+
+    const response =
+      await fetch(url, {
+        signal: controller.signal,
+      });
+
+    if (!response.ok) {
+      throw new Error(
+        `Routing service returned ${response.status}`
+      );
+    }
+
+    const data =
+      await response.json();
+
+    const route =
+      data?.routes?.[0];
+
+    if (!route) {
+      throw new Error(
+        "No route available"
+      );
+    }
+
+    return {
+      deliveryId: delivery._id,
+      orderId: order._id,
+      source: {
+        latitude: sourceLat,
+        longitude: sourceLng,
+      },
+      destination: {
+        latitude: destinationLat,
+        longitude: destinationLng,
+      },
+      distanceMeters:
+        route.distance,
+      durationSeconds:
+        route.duration,
+      etaMinutes:
+        Math.max(
+          1,
+          Math.ceil(
+            route.duration / 60
+          )
+        ),
+      geometry:
+        route.geometry,
+      locationUpdatedAt:
+        current.updatedAt,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
 export const deleteDeliveryService =
   async (id) => {
     const delivery =
@@ -839,12 +1084,15 @@ export const getCustomerDeliveryByOrderService =
       })
         .populate(
           "riderId",
-          "name phone profileImage"
+          "name phone profileImage role portal"
         )
         .populate({
           path: "orderId",
           select:
-            "orderNumber orderStatus",
+            "orderNumber orderStatus userId addressId",
+          populate: {
+            path: "addressId",
+          },
         });
 
     if (!delivery) {

@@ -156,16 +156,6 @@ const orderSchema = new mongoose.Schema(
       default: "PENDING",
     },
 
-    assignedPartner: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      default: null,
-    },
-
-    assignedAt: {
-      type: Date,
-      default: null,
-    },
 
     notes: {
       type: String,

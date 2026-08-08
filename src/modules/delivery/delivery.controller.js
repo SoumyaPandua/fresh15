@@ -9,7 +9,8 @@ import {
   getMyActiveDeliveryService,
   getMyDeliveriesService,
   updateDeliveryStatusService,
-  getCustomerDeliveryByOrderService
+  getCustomerDeliveryByOrderService,
+  getDeliveryRouteService,
 } from "./delivery.service.js";
 
 export const getAllDeliveries = async (
@@ -206,6 +207,35 @@ export const updateDeliveryStatus =
       );
     }
   };
+
+export const getDeliveryRoute = async (
+  req,
+  res
+) => {
+  try {
+    const data =
+      await getDeliveryRouteService(
+        req.params.id,
+        req.user._id,
+        req.user.role
+      );
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      "Delivery route fetched successfully",
+      data
+    );
+  } catch (error) {
+    return sendResponse(
+      res,
+      400,
+      false,
+      error.message
+    );
+  }
+};
 
 export const deleteDelivery = async (
   req,

@@ -25,6 +25,10 @@ const socketAuth = async (socket, next) => {
             return next(new Error("User not found"));
         }
 
+        if (!user.isActive) {
+            return next(new Error("Account is disabled"));
+        }
+
         socket.user = user;
 
         next();
