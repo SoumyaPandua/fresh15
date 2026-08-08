@@ -881,8 +881,7 @@ export const getDeliveryRouteService = async (
   userId,
   userRole
 ) => {
-  const delivery =
-    await getPopulatedDelivery(id);
+  const delivery = await getPopulatedDelivery(id);
 
   if (!delivery) {
     throw new Error("Delivery not found");
@@ -901,8 +900,7 @@ export const getDeliveryRouteService = async (
     );
   }
 
-  const order =
-    delivery.orderId;
+  const order = delivery.orderId;
 
   if (
     userRole === "CUSTOMER" &&
@@ -922,113 +920,335 @@ export const getDeliveryRouteService = async (
   const destination =
     order?.addressId;
 
-  if (
-    !current ||
-    !Number.isFinite(
-      Number(current.latitude)
-    ) ||
-    !Number.isFinite(
-      Number(current.longitude)
-    )
-  ) {
+  if (!current) {
     throw new Error(
       "Live partner location is not available yet"
     );
   }
 
+  const sourceLat =
+    Number(current.latitude);
+
+  const sourceLng =
+    Number(current.longitude);
+
+  const destinationLat =
+    Number(destination?.latitude);
+
+  const destinationLng =
+    Number(destination?.longitude);
+
+  // ==========================================
+  // VALIDATE SOURCE COORDINATES
+  // ==========================================
+
   if (
-    !destination ||
-    !Number.isFinite(
-      Number(destination.latitude)
-    ) ||
-    !Number.isFinite(
-      Number(destination.longitude)
-    )
+    !Number.isFinite(sourceLat) ||
+    !Number.isFinite(sourceLng)
+  ) {
+    throw new Error(
+      "Live partner location coordinates are invalid"
+    );
+  }
+
+  if (
+    sourceLat < -90 ||
+    sourceLat > 90 ||
+    sourceLng < -180 ||
+    sourceLng > 180
+  ) {
+    throw new Error(
+      "Live partner location coordinates are outside valid range"
+    );
+  }
+
+  // ==========================================
+  // VALIDATE DESTINATION COORDINATES
+  // ==========================================
+
+  if (
+    !Number.isFinite(destinationLat) ||
+    !Number.isFinite(destinationLng)
   ) {
     throw new Error(
       "Delivery address coordinates are not available"
     );
   }
 
+  if (
+    destinationLat < -90 ||
+    destinationLat > 90 ||
+    destinationLng < -180 ||
+    destinationLng > 180
+  ) {
+    throw new Error(
+      "Delivery address coordinates are outside valid range"
+    );
+  }
+
+  // ==========================================
+  // SAME LOCATION CHECK
+  // ==========================================
+
+  if (
+    sourceLat === destinationLat &&
+    sourceLng === destinationLng
+  ) {
+    return {
+      deliveryId: delivery._id,
+      orderId: order._id,
+
+      source: {
+        latitude: sourceLat,
+        longitude: sourceLng,
+      },
+
+      destination: {
+        latitude: destinationLat,
+        longitude: destinationLng,
+      },
+
+      distanceMeters: 0,
+      durationSeconds: 0,
+      etaMinutes: 1,
+
+      geometry: {
+        type: "LineString",
+        coordinates: [
+          [
+            sourceLng,
+            sourceLat,
+          ],
+        ],
+      },
+
+      locationUpdatedAt:
+        current.updatedAt,
+    };
+  }
+
+  // ==========================================
+  // OSRM
+  // ==========================================
+
   const baseUrl =
     process.env.OSRM_BASE_URL ||
     "https://router.project-osrm.org";
 
-  const sourceLat =
-    Number(current.latitude);
-  const sourceLng =
-    Number(current.longitude);
-  const destinationLat =
-    Number(destination.latitude);
-  const destinationLng =
-    Number(destination.longitude);
+  const osrmBaseUrl =
+    baseUrl.replace(/\/+$/, "");
+
+  /*
+   * IMPORTANT:
+   *
+   * OSRM expects:
+   *
+   * longitude,latitude
+   *
+   * NOT:
+   *
+   * latitude,longitude
+   */
+
+  const coordinates =
+    `${sourceLng},${sourceLat};` +
+    `${destinationLng},${destinationLat}`;
+
+  const url =
+    `${osrmBaseUrl}/route/v1/driving/` +
+    `${coordinates}` +
+    `?overview=full&geometries=geojson&steps=false`;
+
+  console.log(
+    "🗺️ OSRM ROUTE REQUEST:",
+    {
+      deliveryId:
+        String(delivery._id),
+
+      source: {
+        latitude: sourceLat,
+        longitude: sourceLng,
+      },
+
+      destination: {
+        latitude: destinationLat,
+        longitude: destinationLng,
+      },
+
+      url,
+    }
+  );
 
   const controller =
     new AbortController();
 
   const timeout = setTimeout(
     () => controller.abort(),
-    8000
+    10000
   );
 
   try {
-    const url =
-      `${baseUrl.replace(/\/$/, "")}` +
-      `/route/v1/driving/` +
-      `${sourceLng},${sourceLat};` +
-      `${destinationLng},${destinationLat}` +
-      `?overview=full&geometries=geojson&steps=false`;
-
     const response =
       await fetch(url, {
+        method: "GET",
         signal: controller.signal,
+        headers: {
+          Accept:
+            "application/json",
+          "User-Agent":
+            "Fresh15-Delivery/1.0",
+        },
       });
 
+    const responseText =
+      await response.text();
+
+    let data = null;
+
+    try {
+      data =
+        JSON.parse(responseText);
+    } catch {
+      data = null;
+    }
+
+    // ==========================================
+    // OSRM ERROR
+    // ==========================================
+
     if (!response.ok) {
+      console.error(
+        "❌ OSRM ROUTING ERROR:",
+        {
+          status:
+            response.status,
+
+          statusText:
+            response.statusText,
+
+          response:
+            data || responseText,
+
+          url,
+        }
+      );
+
       throw new Error(
-        `Routing service returned ${response.status}`
+        `Routing service returned ${response.status}: ${
+          data?.message ||
+          data?.code ||
+          responseText ||
+          "Unknown routing error"
+        }`
       );
     }
 
-    const data =
-      await response.json();
+    // ==========================================
+    // OSRM RESPONSE VALIDATION
+    // ==========================================
+
+    if (!data) {
+      throw new Error(
+        "Routing service returned an invalid response"
+      );
+    }
+
+    if (
+      data.code &&
+      data.code !== "Ok"
+    ) {
+      throw new Error(
+        `Routing service error: ${data.code}${
+          data.message
+            ? ` - ${data.message}`
+            : ""
+        }`
+      );
+    }
 
     const route =
       data?.routes?.[0];
 
     if (!route) {
       throw new Error(
-        "No route available"
+        "No route available between partner and delivery address"
       );
     }
 
+    if (
+      !route.geometry ||
+      route.geometry.type !==
+        "LineString" ||
+      !Array.isArray(
+        route.geometry.coordinates
+      ) ||
+      route.geometry.coordinates.length ===
+        0
+    ) {
+      throw new Error(
+        "Routing service returned no route geometry"
+      );
+    }
+
+    // ==========================================
+    // FINAL RESPONSE
+    // ==========================================
+
     return {
-      deliveryId: delivery._id,
-      orderId: order._id,
+      deliveryId:
+        delivery._id,
+
+      orderId:
+        order._id,
+
       source: {
-        latitude: sourceLat,
-        longitude: sourceLng,
+        latitude:
+          sourceLat,
+
+        longitude:
+          sourceLng,
       },
+
       destination: {
-        latitude: destinationLat,
-        longitude: destinationLng,
+        latitude:
+          destinationLat,
+
+        longitude:
+          destinationLng,
       },
+
       distanceMeters:
-        route.distance,
+        Number(route.distance) || 0,
+
       durationSeconds:
-        route.duration,
+        Number(route.duration) || 0,
+
       etaMinutes:
         Math.max(
           1,
           Math.ceil(
-            route.duration / 60
+            Number(route.duration || 0) /
+              60
           )
         ),
+
       geometry:
         route.geometry,
+
       locationUpdatedAt:
         current.updatedAt,
     };
+  } catch (error) {
+    if (
+      error?.name ===
+      "AbortError"
+    ) {
+      throw new Error(
+        "Routing service timed out"
+      );
+    }
+
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
