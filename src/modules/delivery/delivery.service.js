@@ -62,11 +62,11 @@ const buildDeliveryRealtimePayload = (
   destination:
     order.addressId
       ? {
-          latitude:
-            order.addressId.latitude,
-          longitude:
-            order.addressId.longitude,
-        }
+        latitude:
+          order.addressId.latitude,
+        longitude:
+          order.addressId.longitude,
+      }
       : null,
   updatedAt: delivery.updatedAt,
 });
@@ -411,11 +411,11 @@ export const assignRiderService = async (
     destination:
       order.addressId
         ? {
-            latitude:
-              order.addressId.latitude,
-            longitude:
-              order.addressId.longitude,
-          }
+          latitude:
+            order.addressId.latitude,
+          longitude:
+            order.addressId.longitude,
+        }
         : null,
   };
 
@@ -944,21 +944,14 @@ export const getDeliveryRouteService = async (
 
   if (
     !Number.isFinite(sourceLat) ||
-    !Number.isFinite(sourceLng)
+    !Number.isFinite(sourceLng) ||
+    (
+      sourceLat === 0 &&
+      sourceLng === 0
+    )
   ) {
     throw new Error(
       "Live partner location coordinates are invalid"
-    );
-  }
-
-  if (
-    sourceLat < -90 ||
-    sourceLat > 90 ||
-    sourceLng < -180 ||
-    sourceLng > 180
-  ) {
-    throw new Error(
-      "Live partner location coordinates are outside valid range"
     );
   }
 
@@ -968,7 +961,11 @@ export const getDeliveryRouteService = async (
 
   if (
     !Number.isFinite(destinationLat) ||
-    !Number.isFinite(destinationLng)
+    !Number.isFinite(destinationLng) ||
+    (
+      destinationLat === 0 &&
+      destinationLng === 0
+    )
   ) {
     throw new Error(
       "Delivery address coordinates are not available"
@@ -1031,12 +1028,19 @@ export const getDeliveryRouteService = async (
   // OSRM
   // ==========================================
 
-  const baseUrl =
-    process.env.OSRM_BASE_URL ||
-    "https://router.project-osrm.org";
+  const configuredBaseUrl =
+    process.env.OSRM_BASE_URL?.trim();
 
   const osrmBaseUrl =
-    baseUrl.replace(/\/+$/, "");
+    configuredBaseUrl &&
+      /^https?:\/\/[^/\s]+/i.test(
+        configuredBaseUrl
+      )
+      ? configuredBaseUrl.replace(
+        /\/+$/,
+        ""
+      )
+      : "https://router.project-osrm.org";
 
   /*
    * IMPORTANT:
@@ -1134,11 +1138,10 @@ export const getDeliveryRouteService = async (
       );
 
       throw new Error(
-        `Routing service returned ${response.status}: ${
-          data?.message ||
-          data?.code ||
-          responseText ||
-          "Unknown routing error"
+        `Routing service returned ${response.status}: ${data?.message ||
+        data?.code ||
+        responseText ||
+        "Unknown routing error"
         }`
       );
     }
@@ -1158,10 +1161,9 @@ export const getDeliveryRouteService = async (
       data.code !== "Ok"
     ) {
       throw new Error(
-        `Routing service error: ${data.code}${
-          data.message
-            ? ` - ${data.message}`
-            : ""
+        `Routing service error: ${data.code}${data.message
+          ? ` - ${data.message}`
+          : ""
         }`
       );
     }
@@ -1178,12 +1180,12 @@ export const getDeliveryRouteService = async (
     if (
       !route.geometry ||
       route.geometry.type !==
-        "LineString" ||
+      "LineString" ||
       !Array.isArray(
         route.geometry.coordinates
       ) ||
       route.geometry.coordinates.length ===
-        0
+      0
     ) {
       throw new Error(
         "Routing service returned no route geometry"
@@ -1228,7 +1230,7 @@ export const getDeliveryRouteService = async (
           1,
           Math.ceil(
             Number(route.duration || 0) /
-              60
+            60
           )
         ),
 

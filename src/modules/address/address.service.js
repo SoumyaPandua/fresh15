@@ -1,5 +1,67 @@
 import Address from "./address.model.js";
 
+const normalizeCoordinates = (payload) => {
+  const hasLatitude =
+    payload.latitude !== undefined &&
+    payload.latitude !== null &&
+    payload.latitude !== "";
+
+  const hasLongitude =
+    payload.longitude !== undefined &&
+    payload.longitude !== null &&
+    payload.longitude !== "";
+
+  if (!hasLatitude && !hasLongitude) {
+    return {
+      latitude: null,
+      longitude: null,
+    };
+  }
+
+  if (!hasLatitude || !hasLongitude) {
+    throw new Error(
+      "Latitude and longitude must be provided together"
+    );
+  }
+
+  const latitude = Number(payload.latitude);
+  const longitude = Number(payload.longitude);
+
+  if (
+    !Number.isFinite(latitude) ||
+    !Number.isFinite(longitude)
+  ) {
+    throw new Error(
+      "Invalid address coordinates"
+    );
+  }
+
+  if (
+    latitude < -90 ||
+    latitude > 90 ||
+    longitude < -180 ||
+    longitude > 180
+  ) {
+    throw new Error(
+      "Address coordinates are outside valid range"
+    );
+  }
+
+  if (
+    latitude === 0 &&
+    longitude === 0
+  ) {
+    throw new Error(
+      "Address coordinates cannot be 0,0"
+    );
+  }
+
+  return {
+    latitude,
+    longitude,
+  };
+};
+
 export const getAllAddressesService = async (userId) => {
   return await Address.find({ userId }).sort({
     isDefault: -1,
@@ -35,8 +97,12 @@ export const createAddressService = async (userId, payload) => {
     );
   }
 
+  const coordinates =
+    normalizeCoordinates(payload);
+
   const address = await Address.create({
     ...payload,
+    ...coordinates,
     userId,
     isDefault: shouldBeDefault,
   });
@@ -65,7 +131,9 @@ export const updateAddressService = async (
     );
   }
 
-  Object.assign(address, payload);
+  const coordinates = normalizeCoordinates(payload);
+
+  Object.assign(address, payload, coordinates);
 
   await address.save();
 
