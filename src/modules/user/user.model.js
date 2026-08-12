@@ -27,6 +27,11 @@ const authSchema = new mongoose.Schema(
             enum: ["SUPER_ADMIN", "ADMIN", "PARTNER", "CUSTOMER"],
             default: "CUSTOMER"
         },
+        customerTier: {
+            type: String,
+            enum: ["STANDARD", "VIP"],
+            default: "STANDARD",
+        },
         portal: {
             type: String,
             enum: ["platform", "partner", "customer"],
