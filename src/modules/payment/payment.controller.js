@@ -5,7 +5,8 @@ import {
   getPaymentByOrderService,
   paymentFailureService,
   verifyPaymentService,
-  getCodReportService
+  getCodReportService,
+  getRazorpayReportService
 } from "./payment.service.js";
 
 export const createPaymentOrder = async (
