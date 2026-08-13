@@ -5,6 +5,7 @@ import {
   getPaymentByOrderService,
   paymentFailureService,
   verifyPaymentService,
+  getCodReportService
 } from "./payment.service.js";
 
 export const createPaymentOrder = async (
@@ -113,5 +114,23 @@ export const getPaymentByOrder = async (
       false,
       error.message
     );
+  }
+};
+
+export const getCodReport = async (req, res) => {
+  try {
+    const data = await getCodReportService(req.query);
+    return sendResponse(res, 200, true, "COD report fetched successfully", data);
+  } catch (error) {
+    return sendResponse(res, 400, false, error.message);
+  }
+};
+
+export const getRazorpayReport = async (req, res) => {
+  try {
+    const data = await getRazorpayReportService(req.query);
+    return sendResponse(res, 200, true, "Razorpay report fetched successfully", data);
+  } catch (error) {
+    return sendResponse(res, 400, false, error.message);
   }
 };

@@ -16,6 +16,7 @@ import reviewRoutes from "../modules/review/review.routes.js";
 import notificationRoutes from "../modules/notification/notification.routes.js";
 import customerRoutes from "../modules/customer/customer.routes.js";
 import offerRoutes from "../modules/offer/offer.routes.js";
+import bannerRoutes from "../modules/banner/banner.routes.js";
 
 const router = Router();
 
@@ -42,5 +43,6 @@ router.use("/review", reviewRoutes);
 router.use("/notification", notificationRoutes);
 router.use("/customer", customerRoutes);
 router.use("/offer", offerRoutes);
+router.use("/banner", bannerRoutes);
 
 export default router;

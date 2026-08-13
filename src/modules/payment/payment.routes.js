@@ -2,6 +2,7 @@ import express from "express";
 
 import authMiddleware from "../../middleware/auth.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
 
 import {
   createPaymentOrderValidation,
@@ -14,11 +15,16 @@ import {
   getPaymentByOrder,
   paymentFailure,
   verifyPayment,
+  getCodReport,
+  getRazorpayReport
 } from "./payment.controller.js";
 
 const router = express.Router();
 
 router.use(authMiddleware);
+
+router.get("/admin/cod-report", authorize("ADMIN"), getCodReport);
+router.get("/admin/razorpay-report", authorize("ADMIN", "SUPER_ADMIN"), getRazorpayReport);
 
 router.post(
   "/create-order",
