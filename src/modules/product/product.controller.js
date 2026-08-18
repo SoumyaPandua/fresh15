@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   createProductService,
@@ -21,7 +22,7 @@ export const getAllProducts = async (req, res) => {
       products
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -37,7 +38,7 @@ export const getProductById = async (req, res) => {
       product
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -57,7 +58,7 @@ export const createProduct = async (req, res) => {
       product
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -78,7 +79,7 @@ export const updateProduct = async (req, res) => {
       product
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -98,7 +99,7 @@ export const updateProductStatus = async (req, res) => {
       product
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -116,6 +117,6 @@ export const deleteProduct = async (req, res) => {
       "Product deleted successfully"
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };

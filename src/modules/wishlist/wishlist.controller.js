@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   addWishlistService,
@@ -18,7 +19,7 @@ export const getMyWishlist = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -37,7 +38,7 @@ export const addWishlist = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -56,6 +57,6 @@ export const removeWishlist = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };

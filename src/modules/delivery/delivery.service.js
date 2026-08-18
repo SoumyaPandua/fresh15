@@ -2,6 +2,7 @@ import Delivery from "./delivery.model.js";
 import Order from "../order/order.model.js";
 import User from "../user/user.model.js";
 import Profile from "../profile/profile.model.js";
+import { parsePagination, buildPagination } from "../../utils/pagination.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
 import {
@@ -111,21 +112,18 @@ const releaseRider = async (
   await profile.save();
 };
 
-export const getAllDeliveriesService = async () => {
-  return await Delivery.find()
-    .populate({
-      path: "orderId",
-      populate: {
-        path: "addressId",
-      },
-    })
-    .populate(
-      "riderId",
-      "name email phone profileImage role portal"
-    )
-    .sort({
-      createdAt: -1,
-    });
+export const getAllDeliveriesService = async (query = {}) => {
+  const pagination = parsePagination(query);
+  const base = Delivery.find()
+    .populate({ path: "orderId", populate: { path: "addressId" } })
+    .populate("riderId", "name email phone profileImage role portal")
+    .sort({ createdAt: -1 });
+  if (!pagination.hasPagination) return await base;
+  const [items, total] = await Promise.all([
+    base.skip(pagination.skip).limit(pagination.limit),
+    Delivery.countDocuments(),
+  ]);
+  return { items, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
 };
 
 export const getDeliveryByIdService = async (
@@ -156,25 +154,19 @@ export const getDeliveryByIdService = async (
   return delivery;
 };
 
-export const getMyDeliveriesService = async (
-  riderId
-) => {
-  return await Delivery.find({
-    riderId,
-  })
-    .populate({
-      path: "orderId",
-      populate: {
-        path: "addressId",
-      },
-    })
-    .populate(
-      "riderId",
-      "name email phone profileImage role portal"
-    )
-    .sort({
-      createdAt: -1,
-    });
+export const getMyDeliveriesService = async (riderId, query = {}) => {
+  const pagination = parsePagination(query);
+  const filter = { riderId };
+  const base = Delivery.find(filter)
+    .populate({ path: "orderId", populate: { path: "addressId" } })
+    .populate("riderId", "name email phone profileImage role portal")
+    .sort({ createdAt: -1 });
+  if (!pagination.hasPagination) return await base;
+  const [items, total] = await Promise.all([
+    base.skip(pagination.skip).limit(pagination.limit),
+    Delivery.countDocuments(filter),
+  ]);
+  return { items, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
 };
 
 export const getMyActiveDeliveryService = async (

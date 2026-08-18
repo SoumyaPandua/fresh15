@@ -92,3 +92,28 @@ export const updateReviewValidation = [
     return true;
   }),
 ];
+export const adminReviewValidation = [
+  body("isVisible")
+    .optional()
+    .isBoolean()
+    .withMessage("isVisible must be a boolean")
+    .toBoolean(),
+
+  body("rating")
+    .optional()
+    .isInt({ min: 1, max: 5 })
+    .withMessage("Rating must be between 1 and 5")
+    .toInt(),
+
+  body("title")
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage("Review title cannot exceed 100 characters"),
+
+  body("comment")
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage("Review comment cannot exceed 1000 characters"),
+];

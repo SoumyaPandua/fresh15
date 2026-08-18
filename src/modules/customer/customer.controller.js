@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   getCustomersService,
@@ -30,12 +31,7 @@ export const getCustomers = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -53,13 +49,8 @@ export const getCustomerSummary =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const createCustomer = async (
@@ -80,12 +71,7 @@ export const createCustomer = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -106,13 +92,8 @@ export const updateCustomerStatus =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const updateCustomerTier =
@@ -132,13 +113,8 @@ export const updateCustomerTier =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const deleteCustomer = async (
@@ -157,11 +133,6 @@ export const deleteCustomer = async (
       "Customer deleted successfully"
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };

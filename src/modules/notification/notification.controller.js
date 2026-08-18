@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   createNotificationService,
@@ -17,7 +18,8 @@ export const getMyNotifications = async (
   try {
     const notifications =
       await getMyNotificationsService(
-        req.user._id
+        req.user._id,
+        req.query
       );
 
     return sendResponse(
@@ -28,12 +30,7 @@ export const getMyNotifications = async (
       notifications
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -56,12 +53,7 @@ export const getNotificationById = async (
       notification
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -83,13 +75,8 @@ export const getUnreadNotificationCount =
         }
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const createNotification = async (
@@ -111,12 +98,7 @@ export const createNotification = async (
       notification
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -139,12 +121,7 @@ export const markAsRead = async (
       notification
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -166,12 +143,7 @@ export const markAllAsRead = async (
       result
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -192,11 +164,6 @@ export const deleteNotification = async (
       "Notification deleted successfully"
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };

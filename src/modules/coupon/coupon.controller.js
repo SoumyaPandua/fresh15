@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   applyCouponService,
@@ -27,12 +28,7 @@ export const getAllCoupons = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -54,12 +50,7 @@ export const getCouponById = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -82,12 +73,7 @@ export const createCoupon = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -111,12 +97,7 @@ export const updateCoupon = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -138,13 +119,8 @@ export const updateCouponStatus =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const applyCoupon = async (
@@ -166,12 +142,7 @@ export const applyCoupon = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -191,13 +162,8 @@ export const markCouponUsed =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const deleteCoupon = async (
@@ -216,11 +182,6 @@ export const deleteCoupon = async (
       "Coupon deleted successfully"
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };

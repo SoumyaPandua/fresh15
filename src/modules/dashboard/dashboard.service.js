@@ -1,4 +1,4 @@
-import User from "../auth/user.model.js";
+import User from "../user/user.model.js";
 import Product from "../product/product.model.js";
 import Order from "../order/order.model.js";
 import Inventory from "../inventory/inventory.model.js";
@@ -44,7 +44,7 @@ export const getAdminDashboardService =
             }),
 
             Inventory.countDocuments({
-                stockStatus: "OUT_OF_STOCK",
+                status: "OUT_OF_STOCK",
             }),
 
             Order.find()
@@ -58,7 +58,7 @@ export const getAdminDashboardService =
                 ),
 
             Inventory.find({
-                stockStatus: {
+                status: {
                     $in: [
                         "LOW_STOCK",
                         "OUT_OF_STOCK",

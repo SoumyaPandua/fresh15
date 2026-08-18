@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
     createOfferService,
@@ -26,13 +27,8 @@ export const getAllOffers = async (
             data
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-    }
+    return sendError(res, error);
+  }
 };
 
 export const getOfferById = async (
@@ -53,13 +49,8 @@ export const getOfferById = async (
             data
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-    }
+    return sendError(res, error);
+  }
 };
 
 export const getActiveOffers = async (
@@ -78,13 +69,8 @@ export const getActiveOffers = async (
             data
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-    }
+    return sendError(res, error);
+  }
 };
 
 export const createOffer = async (
@@ -106,13 +92,8 @@ export const createOffer = async (
             data
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-    }
+    return sendError(res, error);
+  }
 };
 
 export const updateOffer = async (
@@ -135,13 +116,8 @@ export const updateOffer = async (
             data
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-    }
+    return sendError(res, error);
+  }
 };
 
 export const updateOfferStatus =
@@ -162,13 +138,8 @@ export const updateOfferStatus =
                 data
             );
         } catch (error) {
-            return sendResponse(
-                res,
-                400,
-                false,
-                error.message
-            );
-        }
+    return sendError(res, error);
+  }
     };
 
 export const deleteOffer = async (
@@ -188,11 +159,6 @@ export const deleteOffer = async (
             "Offer deleted successfully"
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-    }
+    return sendError(res, error);
+  }
 };

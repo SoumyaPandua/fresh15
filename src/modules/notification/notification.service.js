@@ -1,6 +1,7 @@
 import Notification from "./notification.model.js";
 import User from "../user/user.model.js";
 import sendEmail from "../../utils/sendEmail.js";
+import { parsePagination, buildPagination } from "../../utils/pagination.js";
 
 const sendNotificationEmail = async (
   user,
@@ -61,14 +62,14 @@ export const createNotificationService =
     return notification;
   };
 
-export const getMyNotificationsService =
-  async (userId) => {
-    return await Notification.find({
-      userId,
-    }).sort({
-      createdAt: -1,
-    });
-  };
+export const getMyNotificationsService = async (userId, query = {}) => {
+  const pagination = parsePagination(query);
+  const filter = { userId };
+  const base = Notification.find(filter).sort({ createdAt: -1 });
+  if (!pagination.hasPagination) return await base;
+  const [items, total] = await Promise.all([base.skip(pagination.skip).limit(pagination.limit), Notification.countDocuments(filter)]);
+  return { items, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
+};
 
 export const getNotificationByIdService =
   async (id, userId) => {

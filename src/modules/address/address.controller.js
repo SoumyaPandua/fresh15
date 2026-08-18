@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   createAddressService,
@@ -13,53 +14,29 @@ export const getAllAddresses = async (req, res) => {
   try {
     const data = await getAllAddressesService(req.user._id);
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Addresses fetched successfully",
-      data
-    );
+    return sendResponse(res, 200, true, "Addresses fetched successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
 export const getAddressById = async (req, res) => {
   try {
-    const data = await getAddressByIdService(
-      req.user._id,
-      req.params.id
-    );
+    const data = await getAddressByIdService(req.user._id, req.params.id);
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Address fetched successfully",
-      data
-    );
+    return sendResponse(res, 200, true, "Address fetched successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
 export const createAddress = async (req, res) => {
   try {
-    const data = await createAddressService(
-      req.user._id,
-      req.body
-    );
+    const data = await createAddressService(req.user._id, req.body);
 
-    return sendResponse(
-      res,
-      201,
-      true,
-      "Address created successfully",
-      data
-    );
+    return sendResponse(res, 201, true, "Address created successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -71,42 +48,25 @@ export const updateAddress = async (req, res) => {
       req.body
     );
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Address updated successfully",
-      data
-    );
+    return sendResponse(res, 200, true, "Address updated successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
 export const deleteAddress = async (req, res) => {
   try {
-    await deleteAddressService(
-      req.user._id,
-      req.params.id
-    );
+    await deleteAddressService(req.user._id, req.params.id);
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Address deleted successfully"
-    );
+    return sendResponse(res, 200, true, "Address deleted successfully");
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
 export const setDefaultAddress = async (req, res) => {
   try {
-    const data = await setDefaultAddressService(
-      req.user._id,
-      req.params.id
-    );
+    const data = await setDefaultAddressService(req.user._id, req.params.id);
 
     return sendResponse(
       res,
@@ -116,6 +76,6 @@ export const setDefaultAddress = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };

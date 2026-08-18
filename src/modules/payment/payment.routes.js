@@ -23,7 +23,7 @@ const router = express.Router();
 
 router.use(authMiddleware);
 
-router.get("/admin/cod-report", authorize("ADMIN"), getCodReport);
+router.get("/admin/cod-report", authorize("ADMIN", "SUPER_ADMIN"), getCodReport);
 router.get("/admin/razorpay-report", authorize("ADMIN", "SUPER_ADMIN"), getRazorpayReport);
 
 router.post(

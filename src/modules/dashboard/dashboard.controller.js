@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   getAdminDashboardService,
@@ -22,12 +23,7 @@ export const getAdminDashboard = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -49,12 +45,7 @@ export const getSellerDashboard = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -74,11 +65,6 @@ export const getCustomerDashboard =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };

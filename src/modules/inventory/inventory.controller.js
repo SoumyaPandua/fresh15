@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   createInventoryService,
@@ -15,7 +16,7 @@ export const getAllInventory = async (req, res) => {
 
     return sendResponse(res, 200, true, "Inventory fetched successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -25,7 +26,7 @@ export const getInventoryByProduct = async (req, res) => {
 
     return sendResponse(res, 200, true, "Inventory fetched successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -35,7 +36,7 @@ export const createInventory = async (req, res) => {
 
     return sendResponse(res, 201, true, "Inventory created successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -49,7 +50,7 @@ export const updateInventory = async (req, res) => {
 
     return sendResponse(res, 200, true, "Inventory updated successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -69,7 +70,7 @@ export const updateInventoryStock = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -84,6 +85,6 @@ export const deleteInventory = async (req, res) => {
       "Inventory deleted successfully"
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };

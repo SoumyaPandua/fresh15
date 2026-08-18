@@ -235,25 +235,34 @@ export const applyCouponService =
     };
   };
 
-export const markCouponUsedService =
-  async (couponId) => {
-    const coupon =
-      await Coupon.findById(
-        couponId
-      );
+export const markCouponUsedService = async (couponId) => {
+  const coupon = await Coupon.findOneAndUpdate(
+    {
+      _id: couponId,
+      $or: [
+        { usageLimit: 0 },
+        { $expr: { $lt: ["$usedCount", "$usageLimit"] } },
+      ],
+    },
+    { $inc: { usedCount: 1 } },
+    { new: true }
+  );
 
-    if (!coupon) {
-      throw new Error(
-        "Coupon not found"
-      );
-    }
+  if (!coupon) {
+    const exists = await Coupon.exists({ _id: couponId });
+    if (!exists) throw new Error("Coupon not found");
+    throw new Error("Coupon usage limit exceeded");
+  }
 
-    coupon.usedCount += 1;
+  return coupon;
+};
 
-    await coupon.save();
-
-    return coupon;
-  };
+export const releaseCouponUsageService = async (couponId) => {
+  await Coupon.updateOne(
+    { _id: couponId, usedCount: { $gt: 0 } },
+    { $inc: { usedCount: -1 } }
+  );
+};
 
 export const deleteCouponService =
   async (id) => {

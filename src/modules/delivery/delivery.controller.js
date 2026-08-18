@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   assignRiderService,
@@ -19,7 +20,7 @@ export const getAllDeliveries = async (
 ) => {
   try {
     const data =
-      await getAllDeliveriesService();
+      await getAllDeliveriesService(req.query);
 
     return sendResponse(
       res,
@@ -29,12 +30,7 @@ export const getAllDeliveries = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -58,12 +54,7 @@ export const getDeliveryById = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -74,7 +65,8 @@ export const getMyDeliveries = async (
   try {
     const data =
       await getMyDeliveriesService(
-        req.user._id
+        req.user._id,
+        req.query
       );
 
     return sendResponse(
@@ -85,12 +77,7 @@ export const getMyDeliveries = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -114,12 +101,7 @@ export const getMyActiveDelivery = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -142,12 +124,7 @@ export const createDelivery = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -171,12 +148,7 @@ export const assignRider = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -199,13 +171,8 @@ export const updateDeliveryStatus =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };
 
 export const getDeliveryRoute = async (
@@ -228,12 +195,7 @@ export const getDeliveryRoute = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -253,12 +215,7 @@ export const deleteDelivery = async (
       "Delivery deleted successfully"
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -279,11 +236,6 @@ export const getCustomerDeliveryByOrder =
         data
       );
     } catch (error) {
-      return sendResponse(
-        res,
-        400,
-        false,
-        error.message
-      );
-    }
+    return sendError(res, error);
+  }
   };

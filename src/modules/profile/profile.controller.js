@@ -7,6 +7,7 @@ import {
 } from "./profile.service.js";
 
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 export const getMyProfile = async (req, res) => {
   try {
@@ -14,7 +15,7 @@ export const getMyProfile = async (req, res) => {
 
     return sendResponse(res, 200, true, "Profile fetched successfully", data);
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -33,12 +34,7 @@ export const updateMyProfile = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -59,7 +55,7 @@ export const changePassword = async (req, res) => {
       "Password changed successfully"
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -88,12 +84,7 @@ export const updateAvatar = async (req, res) => {
     console.error("UPDATE AVATAR ERROR:");
     console.error(error);
 
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message || "Avatar update failed"
-    );
+    return sendError(res, error);
   }
 };
 
@@ -130,11 +121,6 @@ export const updatePartnerAvailability = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };

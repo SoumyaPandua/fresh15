@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   createCategoryService,
@@ -21,7 +22,7 @@ export const getAllCategories = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -37,7 +38,7 @@ export const getCategoryById = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -57,7 +58,7 @@ export const createCategory = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -78,7 +79,7 @@ export const updateCategory = async (req, res) => {
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -101,7 +102,7 @@ export const updateCategoryStatus = async (
       data
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };
 
@@ -119,6 +120,6 @@ export const deleteCategory = async (req, res) => {
       "Category deleted successfully"
     );
   } catch (error) {
-    return sendResponse(res, 400, false, error.message);
+    return sendError(res, error);
   }
 };

@@ -1,6 +1,7 @@
 import { validationResult } from "express-validator";
 import { registerService, verifyOtpService, loginService, resendOtpService, forgotPasswordService, resetPasswordService } from "./auth.service.js";
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 export const register = async (req, res) => {
     try {
@@ -9,9 +10,11 @@ export const register = async (req, res) => {
         if (!errors.isEmpty()) {
             return sendResponse(
                 res,
-                400,
+                422,
                 false,
-                "Validation Failed",
+                "Validation failed",
+                null,
+                "VALIDATION_ERROR",
                 errors.array()
             );
         }
@@ -30,12 +33,7 @@ export const register = async (req, res) => {
             }
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
+        return sendError(res, error);
     }
 };
 
@@ -53,14 +51,7 @@ export const verifyOtp = async (req, res) => {
         );
 
     } catch (error) {
-
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-
+        return sendError(res, error);
     }
 };
 
@@ -76,12 +67,7 @@ export const login = async (req, res) => {
             result
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
+        return sendError(res, error);
     }
 };
 
@@ -96,12 +82,7 @@ export const resendOtp = async (req, res) => {
             "OTP sent successfully"
         );
     } catch (error) {
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
+        return sendError(res, error);
     }
 };
 
@@ -119,14 +100,7 @@ export const forgotPassword = async (req, res) => {
         );
 
     } catch (error) {
-
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-
+        return sendError(res, error);
     }
 
 };
@@ -145,14 +119,7 @@ export const resetPassword = async (req, res) => {
         );
 
     } catch (error) {
-
-        return sendResponse(
-            res,
-            400,
-            false,
-            error.message
-        );
-
+        return sendError(res, error);
     }
 
 };

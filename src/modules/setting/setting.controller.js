@@ -1,4 +1,5 @@
 import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
 
 import {
   getSettingService,
@@ -21,12 +22,7 @@ export const getSetting = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };
 
@@ -38,7 +34,8 @@ export const updateSetting = async (
     const data =
       await updateSettingService(
         req.body,
-        req.user._id
+        req.user._id,
+        req.file
       );
 
     return sendResponse(
@@ -49,11 +46,6 @@ export const updateSetting = async (
       data
     );
   } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
+    return sendError(res, error);
   }
 };

@@ -4,6 +4,7 @@ import Product from "./product.model.js";
 import Category from "../category/category.model.js";
 import Inventory from "../inventory/inventory.model.js";
 import { uploadImage } from "../../config/cloudinary.js";
+import { parsePagination, buildPagination } from "../../utils/pagination.js";
 
 export const getAllProductsService = async (query) => {
   const filter = {
@@ -28,13 +29,16 @@ export const getAllProductsService = async (query) => {
     };
   }
 
-  const products = await Product.find(filter)
-    .populate("categoryId", "name")
-    .sort({
-      createdAt: -1,
-    });
+  const pagination = parsePagination(query);
+  const base = Product.find(filter).populate("categoryId", "name").sort({ createdAt: -1 });
+  if (!pagination.hasPagination) return await base;
 
-  return products;
+  const [products, total] = await Promise.all([
+    base.skip(pagination.skip).limit(pagination.limit),
+    Product.countDocuments(filter),
+  ]);
+
+  return { items: products, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
 };
 
 export const getProductByIdService = async (id) => {

@@ -6,6 +6,7 @@ import generateOtp from "../../utils/generateOtp.js";
 import sendEmail from "../../utils/sendEmail.js";
 import otpTemplate from "../../templates/otpTemplate.js";
 import generateToken from "../../utils/generateToken.js";
+import AppError from "../../utils/AppError.js";
 
 export const registerService = async ({
     name,
@@ -19,7 +20,7 @@ export const registerService = async ({
     const existingUser = await User.findOne({ email });
 
     if (existingUser) {
-        throw new Error("Email already registered");
+        throw new AppError(409, "EMAIL_ALREADY_REGISTERED", "Email already registered");
     }
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -63,12 +64,24 @@ export const verifyOtpService = async ({
     const savedOtp = await redis.get(key);
 
     if (!savedOtp) {
-        throw new Error("OTP expired");
+        throw new AppError(422, "OTP_EXPIRED", "OTP expired");
+    }
+
+    const attemptKey = `otp:attempts:${purpose}:${email}`;
+    const attempts = Number(await redis.get(attemptKey) || 0);
+
+    if (attempts >= 5) {
+        throw new AppError(429, "OTP_RATE_LIMITED", "Too many OTP attempts. Please request a new OTP.");
     }
 
     // Convert both to string because frontend may send OTP as number
     if (String(savedOtp) !== String(otp)) {
-        throw new Error("Invalid OTP");
+        const nextAttempts = await redis.incr(attemptKey);
+        if (nextAttempts === 1) await redis.expire(attemptKey, 600);
+        if (nextAttempts >= 5) {
+            throw new AppError(429, "OTP_RATE_LIMITED", "Too many OTP attempts. Please request a new OTP.");
+        }
+        throw new AppError(422, "INVALID_OTP", "Invalid OTP");
     }
 
     // Registration OTP
@@ -76,7 +89,7 @@ export const verifyOtpService = async ({
         const user = await User.findOne({ email });
 
         if (!user) {
-            throw new Error("User not found");
+            throw new AppError(404, "USER_NOT_FOUND", "User not found");
         }
 
         user.isEmailVerified = true;
@@ -85,6 +98,7 @@ export const verifyOtpService = async ({
 
         // OTP becomes invalid immediately after successful verification
         await redis.del(key);
+        await redis.del(attemptKey);
 
         return null;
     }
@@ -94,7 +108,7 @@ export const verifyOtpService = async ({
         const user = await User.findOne({ email });
 
         if (!user) {
-            throw new Error("User not found");
+            throw new AppError(404, "USER_NOT_FOUND", "User not found");
         }
 
         const resetToken = jwt.sign(
@@ -110,13 +124,14 @@ export const verifyOtpService = async ({
 
         // Delete OTP from Redis after successful verification
         await redis.del(key);
+        await redis.del(attemptKey);
 
         return {
             resetToken
         };
     }
 
-    throw new Error("Invalid OTP purpose");
+    throw new AppError(422, "INVALID_OTP_PURPOSE", "Invalid OTP purpose");
 };
 
 export const loginService = async ({
@@ -129,19 +144,19 @@ export const loginService = async ({
     const user = await User.findOne({ email });
 
     if (!user) {
-        throw new Error("Invalid email or password");
+        throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
     }
 
     if (user.portal !== portal) {
-        throw new Error("Unauthorized portal");
+        throw new AppError(403, "FORBIDDEN", "Unauthorized portal");
     }
 
     if (!user.isEmailVerified) {
-        throw new Error("Please verify your email");
+        throw new AppError(403, "EMAIL_NOT_VERIFIED", "Please verify your email");
     }
 
     if (!user.isActive) {
-        throw new Error("Account is disabled");
+        throw new AppError(403, "ACCOUNT_DISABLED", "Account is disabled");
     }
 
     const isMatch = await bcrypt.compare(
@@ -150,7 +165,7 @@ export const loginService = async ({
     );
 
     if (!isMatch) {
-        throw new Error("Invalid email or password");
+        throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
     }
 
     const token = generateToken(user._id);
@@ -167,11 +182,11 @@ export const resendOtpService = async (email) => {
     const user = await User.findOne({ email });
 
     if (!user) {
-        throw new Error("User not found");
+        throw new AppError(404, "USER_NOT_FOUND", "User not found");
     }
 
     if (user.isEmailVerified) {
-        throw new Error("Email already verified");
+        throw new AppError(409, "EMAIL_ALREADY_VERIFIED", "Email already verified");
     }
 
     const otp = generateOtp();
@@ -196,7 +211,7 @@ export const forgotPasswordService = async (email) => {
     const user = await User.findOne({ email });
 
     if (!user) {
-        throw new Error("User not found");
+        throw new AppError(404, "USER_NOT_FOUND", "User not found");
     }
 
     const otp = generateOtp();
@@ -231,7 +246,7 @@ export const resetPasswordService = async ({
 
     } catch {
 
-        throw new Error("Invalid or expired reset token");
+        throw new AppError(422, "INVALID_RESET_TOKEN", "Invalid or expired reset token");
 
     }
 
@@ -240,7 +255,7 @@ export const resetPasswordService = async ({
     });
 
     if (!user) {
-        throw new Error("User not found");
+        throw new AppError(404, "USER_NOT_FOUND", "User not found");
     }
 
     user.password = await bcrypt.hash(password, 10);

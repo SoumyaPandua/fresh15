@@ -1,46 +1,52 @@
 import crypto from "crypto";
 import Razorpay from "razorpay";
-
 import Payment from "./payment.model.js";
 import Order from "../order/order.model.js";
 import { sendNotificationService } from "../notification/notification.service.js";
+import { finalizeOrderStockService, releaseOrderStockService } from "../order/order.service.js";
+import { releaseCouponUsageService } from "../coupon/coupon.service.js";
 import Delivery from "../delivery/delivery.model.js";
+import AppError from "../../utils/AppError.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
-export const createPaymentOrderService = async (
-  userId,
-  orderId
-) => {
-  const order = await Order.findOne({
-    _id: orderId,
-    userId,
-  });
+const getOwnedOrder = async (userId, orderId) => {
+  const order = await Order.findOne({ _id: orderId, userId, isDeleted: false });
+  if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  return order;
+};
 
-  if (!order) {
-    throw new Error("Order not found");
+export const createPaymentOrderService = async (userId, orderId) => {
+  const order = await getOwnedOrder(userId, orderId);
+
+  if (order.paymentMethod !== "ONLINE") {
+    throw new AppError(409, "PAYMENT_METHOD_CONFLICT", "This order does not use online payment");
   }
-
   if (order.paymentStatus === "PAID") {
-    throw new Error("Order already paid");
+    throw new AppError(409, "ORDER_ALREADY_PAID", "Order already paid");
+  }
+  if (order.orderStatus === "CANCELLED") {
+    throw new AppError(409, "ORDER_CANCELLED", "Cancelled orders cannot be paid");
   }
 
-  let payment = await Payment.findOne({
-    orderId,
-  });
-
-  if (payment && payment.status === "PAID") {
-    throw new Error("Payment already completed");
+  let payment = await Payment.findOne({ orderId: order._id, userId });
+  if (payment?.status === "PAID") {
+    throw new AppError(409, "PAYMENT_ALREADY_COMPLETED", "Payment already completed");
   }
 
-  const razorpayOrder = await razorpay.orders.create({
-    amount: Math.round(order.grandTotal * 100),
-    currency: "INR",
-    receipt: order.orderNumber,
-  });
+  let razorpayOrder;
+  try {
+    razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(order.grandTotal * 100),
+      currency: "INR",
+      receipt: order.orderNumber,
+    });
+  } catch (error) {
+    throw new AppError(502, "PAYMENT_GATEWAY_UNAVAILABLE", "Payment gateway is unavailable", [error.message]);
+  }
 
   if (!payment) {
     payment = await Payment.create({
@@ -49,7 +55,7 @@ export const createPaymentOrderService = async (
       razorpayOrderId: razorpayOrder.id,
       amount: order.grandTotal,
       currency: "INR",
-      method: order.paymentMethod,
+      method: "ONLINE",
       status: "CREATED",
       createdBy: userId,
     });
@@ -57,8 +63,8 @@ export const createPaymentOrderService = async (
     payment.razorpayOrderId = razorpayOrder.id;
     payment.amount = order.grandTotal;
     payment.status = "CREATED";
+    payment.failureReason = "";
     payment.updatedBy = userId;
-
     await payment.save();
   }
 
@@ -71,71 +77,59 @@ export const createPaymentOrderService = async (
   };
 };
 
-export const verifyPaymentService = async (
-  userId,
-  body
-) => {
-  const order = await Order.findOne({
-    _id: body.orderId,
-    userId,
-  });
+export const verifyPaymentService = async (userId, body) => {
+  const order = await getOwnedOrder(userId, body.orderId);
+  const payment = await Payment.findOne({ orderId: order._id, userId });
 
-  if (!order) {
-    throw new Error("Order not found");
+  if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
+  if (order.paymentStatus === "PAID" || payment.status === "PAID") {
+    throw new AppError(409, "PAYMENT_ALREADY_COMPLETED", "Payment already completed");
   }
-
-  const payment = await Payment.findOne({
-    orderId: order._id,
-  });
-
-  if (!payment) {
-    throw new Error("Payment not found");
+  if (payment.razorpayOrderId !== body.razorpay_order_id) {
+    throw new AppError(400, "PAYMENT_ORDER_MISMATCH", "Payment order does not match the order being paid");
   }
 
   const generatedSignature = crypto
-    .createHmac(
-      "sha256",
-      process.env.RAZORPAY_KEY_SECRET
-    )
-    .update(
-      `${body.razorpay_order_id}|${body.razorpay_payment_id}`
-    )
+    .createHmac("sha256", process.env.RAZORPAY_KEY_SECRET)
+    .update(`${body.razorpay_order_id}|${body.razorpay_payment_id}`)
     .digest("hex");
 
-  if (
-    generatedSignature !==
-    body.razorpay_signature
-  ) {
+  if (generatedSignature !== body.razorpay_signature) {
     payment.status = "FAILED";
     payment.failureReason = "Signature verification failed";
     payment.updatedBy = userId;
-
     await payment.save();
 
-    throw new Error("Invalid payment signature");
+    await releaseOrderStockService(order);
+    if (order.couponUsageRecorded && order.couponId) {
+      await releaseCouponUsageService(order.couponId);
+      order.couponUsageRecorded = false;
+    }
+    order.paymentStatus = "FAILED";
+    order.orderStatus = "CANCELLED";
+    order.updatedBy = userId;
+    await order.save();
+
+    throw new AppError(400, "PAYMENT_SIGNATURE_INVALID", "Invalid payment signature");
   }
 
-  payment.razorpayPaymentId =
-    body.razorpay_payment_id;
-
-  payment.razorpaySignature =
-    body.razorpay_signature;
-
-  payment.gatewayResponse = body;
-
+  payment.razorpayPaymentId = body.razorpay_payment_id;
+  payment.razorpaySignature = body.razorpay_signature;
+  payment.gatewayResponse = {
+    razorpay_order_id: body.razorpay_order_id,
+    razorpay_payment_id: body.razorpay_payment_id,
+  };
   payment.status = "PAID";
-
   payment.paidAt = new Date();
-
   payment.updatedBy = userId;
-
   await payment.save();
 
   order.paymentStatus = "PAID";
-
   order.orderStatus = "CONFIRMED";
+  order.updatedBy = userId;
 
   await order.save();
+  await finalizeOrderStockService(order);
 
   try {
     await sendNotificationService({
@@ -144,51 +138,40 @@ export const verifyPaymentService = async (
       message: `Payment for order ${order.orderNumber} was successful.`,
       type: "PAYMENT_SUCCESS",
       channel: "IN_APP",
-      metadata: {
-        orderId: order._id.toString(),
-        orderNumber: order.orderNumber,
-        paymentMethod: "ONLINE",
-      },
+      metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber, paymentMethod: "ONLINE" },
       createdBy: userId,
     });
   } catch (error) {
-    console.error(
-      "Payment success notification failed:",
-      error.message
-    );
+    console.error("Payment success notification failed:", error.message);
   }
 
   return payment;
 };
 
-export const paymentFailureService = async (
-  userId,
-  body
-) => {
-  const order = await Order.findOne({
-    _id: body.orderId,
-    userId,
-  });
+export const paymentFailureService = async (userId, body) => {
+  const order = await getOwnedOrder(userId, body.orderId);
+  const payment = await Payment.findOne({ orderId: order._id, userId });
+  if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
 
-  if (!order) {
-    throw new Error("Order not found");
-  }
-
-  const payment = await Payment.findOne({
-    orderId: order._id,
-    userId,
-  });
-
-  if (!payment) {
-    throw new Error("Payment not found");
+  if (payment.status === "PAID" || order.paymentStatus === "PAID") {
+    throw new AppError(409, "PAYMENT_ALREADY_COMPLETED", "A successful payment cannot be marked as failed");
   }
 
   payment.status = "FAILED";
-  payment.failureReason =
-    body.reason || "Payment failed";
+  payment.failureReason = body.reason?.trim() || body.error?.description || body.error?.code || "Payment failed";
+  payment.gatewayResponse = body.error || payment.gatewayResponse || {};
   payment.updatedBy = userId;
-
   await payment.save();
+
+  await releaseOrderStockService(order);
+  if (order.couponUsageRecorded && order.couponId) {
+    await releaseCouponUsageService(order.couponId);
+    order.couponUsageRecorded = false;
+  }
+  order.paymentStatus = "FAILED";
+  order.orderStatus = "CANCELLED";
+  order.updatedBy = userId;
+  await order.save();
 
   try {
     await sendNotificationService({
@@ -197,37 +180,21 @@ export const paymentFailureService = async (
       message: `Payment for order ${order.orderNumber} could not be completed.`,
       type: "PAYMENT_FAILED",
       channel: "IN_APP",
-      metadata: {
-        orderId: order._id.toString(),
-        orderNumber: order.orderNumber,
-      },
+      metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber },
       createdBy: userId,
     });
   } catch (error) {
-    console.error(
-      "Payment failure notification failed:",
-      error.message
-    );
+    console.error("Payment failure notification failed:", error.message);
   }
 
   return payment;
 };
 
-export const getPaymentByOrderService = async (
-  orderId,
-  userId
-) => {
-  const payment = await Payment.findOne({
-    orderId,
-    userId,
-  })
+export const getPaymentByOrderService = async (orderId, userId) => {
+  const payment = await Payment.findOne({ orderId, userId })
     .populate("orderId")
     .populate("userId", "name email phone");
-
-  if (!payment) {
-    throw new Error("Payment not found");
-  }
-
+  if (!payment) throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment not found");
   return payment;
 };
 

@@ -1,5 +1,4 @@
 import { Router } from "express";
-
 import authRoutes from "../modules/auth/auth.routes.js";
 import profileRoutes from "../modules/profile/profile.routes.js";
 import categoryRoutes from "../modules/category/category.routes.js";
@@ -17,14 +16,14 @@ import notificationRoutes from "../modules/notification/notification.routes.js";
 import customerRoutes from "../modules/customer/customer.routes.js";
 import offerRoutes from "../modules/offer/offer.routes.js";
 import bannerRoutes from "../modules/banner/banner.routes.js";
+import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
+import supportRoutes from "../modules/support/support.routes.js";
+import settingRoutes from "../modules/setting/setting.routes.js";
 
 const router = Router();
 
 router.get("/health", (req, res) => {
-    res.json({
-        success: true,
-        message: "Backend Running"
-    });
+  res.status(200).json({ success: true, message: "Backend Running", code: "OK", data: null, errors: [] });
 });
 
 router.use("/auth", authRoutes);
@@ -44,5 +43,8 @@ router.use("/notification", notificationRoutes);
 router.use("/customer", customerRoutes);
 router.use("/offer", offerRoutes);
 router.use("/banner", bannerRoutes);
+router.use("/dashboard", dashboardRoutes);
+router.use("/support", supportRoutes);
+router.use("/setting", settingRoutes);
 
 export default router;

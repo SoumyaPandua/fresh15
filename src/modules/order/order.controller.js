@@ -1,123 +1,48 @@
 import sendResponse from "../../utils/sendResponse.js";
-
+import { sendError } from "../../utils/errorResponse.js";
 import {
   createOrderService,
-  deleteOrderService,
   getMyOrdersService,
   getOrderByIdService,
   getAllOrdersService,
   updateOrderStatusService,
+  cancelMyOrderService,
+  adminArchiveOrderService,
 } from "./order.service.js";
 
 export const getMyOrders = async (req, res) => {
-  try {
-    const data = await getMyOrdersService(req.user._id);
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Orders fetched successfully",
-      data
-    );
-  } catch (error) {
-    return sendResponse(res, 400, false, error.message);
-  }
+  try { return sendResponse(res, 200, true, "Orders fetched successfully", await getMyOrdersService(req.user._id, req.query)); }
+  catch (error) { return sendError(res, error); }
 };
 
 export const getOrderById = async (req, res) => {
-  try {
-    const data = await getOrderByIdService(
-      req.params.id,
-      req.user._id
-    );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Order fetched successfully",
-      data
-    );
-  } catch (error) {
-    return sendResponse(res, 400, false, error.message);
-  }
+  try { return sendResponse(res, 200, true, "Order fetched successfully", await getOrderByIdService(req.params.id, req.user._id)); }
+  catch (error) { return sendError(res, error); }
 };
 
 export const createOrder = async (req, res) => {
-  try {
-    const data = await createOrderService(
-      req.user._id,
-      req.body
-    );
-
-    return sendResponse(
-      res,
-      201,
-      true,
-      "Order placed successfully",
-      data
-    );
-  } catch (error) {
-    return sendResponse(res, 400, false, error.message);
-  }
+  try { return sendResponse(res, 201, true, "Order placed successfully", await createOrderService(req.user._id, req.body)); }
+  catch (error) { return sendError(res, error); }
 };
 
-export const updateOrderStatus = async (
-  req,
-  res
-) => {
-  try {
-    const data = await updateOrderStatusService(
-      req.params.id,
-      req.user._id,
-      req.body.orderStatus
-    );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Order status updated successfully",
-      data
-    );
-  } catch (error) {
-    return sendResponse(res, 400, false, error.message);
-  }
+export const updateOrderStatus = async (req, res) => {
+  try { return sendResponse(res, 200, true, "Order status updated successfully", await updateOrderStatusService(req.params.id, req.user._id, req.body.orderStatus)); }
+  catch (error) { return sendError(res, error); }
 };
 
-export const deleteOrder = async (req, res) => {
-  try {
-    await deleteOrderService(req.params.id);
+export const cancelMyOrder = async (req, res) => {
+  try { return sendResponse(res, 200, true, "Order cancelled successfully", await cancelMyOrderService(req.params.id, req.user._id)); }
+  catch (error) { return sendError(res, error); }
+};
 
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Order deleted successfully"
-    );
-  } catch (error) {
-    return sendResponse(res, 400, false, error.message);
-  }
+export const archiveOrder = async (req, res) => {
+  try {
+    await adminArchiveOrderService(req.params.id, req.user._id);
+    return res.status(204).send();
+  } catch (error) { return sendError(res, error); }
 };
 
 export const getAllOrders = async (req, res) => {
-  try {
-    const orders = await getAllOrdersService();
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Orders fetched successfully",
-      orders
-    );
-  } catch (error) {
-    return sendResponse(
-      res,
-      400,
-      false,
-      error.message
-    );
-  }
+  try { return sendResponse(res, 200, true, "Orders fetched successfully", await getAllOrdersService(req.query)); }
+  catch (error) { return sendError(res, error); }
 };
