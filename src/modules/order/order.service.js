@@ -52,7 +52,7 @@ const reserveInventoryItem = async (productId, quantity) => {
         },
       },
     ],
-    { new: true }
+    { new: true, updatePipeline: true }
   );
 
   if (!inventory) {
@@ -86,7 +86,7 @@ const releaseInventoryItem = async (productId, quantity) => {
         },
       },
     ],
-    { new: true }
+    { new: true, updatePipeline: true }
   );
 };
 
@@ -114,7 +114,7 @@ const finalizeInventoryItem = async (productId, quantity) => {
         },
       },
     ],
-    { new: true }
+    { new: true, updatePipeline: true }
   );
 
   if (!inventory) {
