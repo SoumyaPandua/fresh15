@@ -40,28 +40,37 @@ const resolveStore = async (address) => {
   if (!stores.length) throw new AppError(503, "FULFILLMENT_UNAVAILABLE", "No active store is available for this delivery area");
 
   const lat =
-  address.latitude !== null &&
-  address.latitude !== undefined &&
-  address.latitude !== ""
-    ? Number(address.latitude)
-    : NaN;
+    address.latitude !== null &&
+    address.latitude !== undefined &&
+    address.latitude !== ""
+      ? Number(address.latitude)
+      : NaN;
+  const lng =
+    address.longitude !== null &&
+    address.longitude !== undefined &&
+    address.longitude !== ""
+      ? Number(address.longitude)
+      : NaN;
 
-const lng =
-  address.longitude !== null &&
-  address.longitude !== undefined &&
-  address.longitude !== ""
-    ? Number(address.longitude)
-    : NaN;
+  // Pincode/zone already establishes serviceability. Coordinates are optional
+  // on customer addresses, so do not treat null as 0,0.
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return stores[0];
+  }
+
   const withDistance = stores.map((store) => ({
     store,
     distanceKm: haversineKm(lat, lng, Number(store.latitude), Number(store.longitude)),
   }));
 
-  const eligible = Number.isFinite(lat) && Number.isFinite(lng)
-    ? withDistance.filter((x) => x.distanceKm <= Number(x.store.serviceRadiusKm || 10))
-    : withDistance;
+  const eligible = withDistance.filter(
+    (x) => x.distanceKm <= Number(x.store.serviceRadiusKm || 10),
+  );
 
-  if (!eligible.length) throw new AppError(422, "STORE_OUTSIDE_SERVICE_AREA", "No store can serve this delivery address");
+  if (!eligible.length) {
+    throw new AppError(422, "STORE_OUTSIDE_SERVICE_AREA", "No store can serve this delivery address");
+  }
+
   eligible.sort((a, b) => a.distanceKm - b.distanceKm);
   return eligible[0].store;
 };
@@ -81,37 +90,55 @@ const getWorkload = async (zoneId, storeId) => {
 };
 
 const slotForDate = (slot, date, now, workload, zone, store, booked) => {
+  const isAsap = slot.type === "ASAP";
   const start = new Date(date);
-  start.setHours(Math.floor(slot.fromMinutes / 60), slot.fromMinutes % 60, 0, 0);
   const end = new Date(date);
-  end.setHours(Math.floor(slot.toMinutes / 60), slot.toMinutes % 60, 0, 0);
 
-  const cutoff = addMinutes(start, -Number(slot.cutoffMinutesBeforeStart || 0));
-  if (dateKey(date) === dateKey(now) && now.getTime() >= cutoff.getTime()) return null;
-  if (end <= now) return null;
+  if (isAsap) {
+    // ASAP is relative to the current time; its admin from/to values are not
+    // used as a fixed clock window.
+    start.setTime(now.getTime());
+  } else {
+    start.setHours(Math.floor(slot.fromMinutes / 60), slot.fromMinutes % 60, 0, 0);
+    end.setHours(Math.floor(slot.toMinutes / 60), slot.toMinutes % 60, 0, 0);
+
+    const cutoff = addMinutes(start, -Number(slot.cutoffMinutesBeforeStart || 0));
+    if (dateKey(date) === dateKey(now) && now.getTime() >= cutoff.getTime()) return null;
+    if (end <= now) return null;
+  }
 
   const zoneRemaining = Math.max(0, Number(zone.maxConcurrentOrders) - workload.zoneOrders);
   const storeRemaining = Math.max(0, Number(store.maxConcurrentOrders) - workload.storeOrders);
   const slotRemaining = Math.max(0, Number(slot.capacity) - booked);
-  const effectiveCapacity = Math.max(0, Math.min(slotRemaining, zoneRemaining, storeRemaining, workload.partnerRemaining));
+  const effectiveCapacity = Math.max(
+    0,
+    Math.min(slotRemaining, zoneRemaining, storeRemaining, workload.partnerRemaining),
+  );
 
   if (effectiveCapacity <= 0) return null;
 
   const pressure = Math.max(workload.zoneOrders, workload.storeOrders);
-  const workloadDelay = Math.min(30, Math.ceil(pressure / Math.max(1, Number(slot.capacity))) * Number(zone.workloadDelayMinutes || 0));
+  const workloadDelay = Math.min(
+    30,
+    Math.ceil(pressure / Math.max(1, Number(slot.capacity))) *
+      Number(zone.workloadDelayMinutes || 0),
+  );
   const prep = Number(store.prepMinutes || 0);
   const travel = Number(zone.travelMinutes || 0);
-  const promiseBase = slot.type === "ASAP" ? addMinutes(now, Number(slot.leadTimeMinutes || 0) + prep + travel + workloadDelay) : start;
-  const promisedAt = slot.type === "ASAP" ? promiseBase : addMinutes(end, travel + workloadDelay);
+  const promisedAt = isAsap
+    ? addMinutes(now, Number(slot.leadTimeMinutes || 0) + prep + travel + workloadDelay)
+    : addMinutes(end, travel + workloadDelay);
 
   return {
     slotId: slot._id,
     dateKey: dateKey(date),
     label: slot.label,
     type: slot.type,
-    window: slot.type === "ASAP" ? `Within ${Math.max(1, Math.ceil((promisedAt - now) / 60000))} min` : `${pad(Math.floor(slot.fromMinutes / 60))}:${pad(slot.fromMinutes % 60)} - ${pad(Math.floor(slot.toMinutes / 60))}:${pad(slot.toMinutes % 60)}`,
+    window: isAsap
+      ? `Within ${Math.max(1, Math.ceil((promisedAt - now) / 60000))} min`
+      : `${pad(Math.floor(slot.fromMinutes / 60))}:${pad(slot.fromMinutes % 60)} - ${pad(Math.floor(slot.toMinutes / 60))}:${pad(slot.toMinutes % 60)}`,
     startsAt: start.toISOString(),
-    endsAt: end.toISOString(),
+    endsAt: isAsap ? promisedAt.toISOString() : end.toISOString(),
     promisedAt: promisedAt.toISOString(),
     remainingCapacity: effectiveCapacity,
     capacity: Number(slot.capacity),
@@ -125,9 +152,13 @@ const slotForDate = (slot, date, now, workload, zone, store, booked) => {
       activeDeliveries: workload.activeDeliveries,
       partnerRemaining: workload.partnerRemaining,
     },
-    cutoffAt: cutoff.toISOString(),
+    cutoffAt: isAsap ? now.toISOString() : addMinutes(
+      start,
+      -Number(slot.cutoffMinutesBeforeStart || 0),
+    ).toISOString(),
   };
 };
+
 
 export const getAvailableDeliverySlotsService = async (userId, addressId) => {
   const address = await Address.findOne({ _id: addressId, userId });

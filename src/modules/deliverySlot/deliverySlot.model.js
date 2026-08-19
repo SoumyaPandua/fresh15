@@ -1,24 +1,20 @@
 import mongoose from "mongoose";
 
-const deliverySlotSchema = new mongoose.Schema(
+const deliveryStoreSchema = new mongoose.Schema(
   {
-    label: { type: String, required: true, trim: true, maxlength: 80 },
-    type: { type: String, enum: ["ASAP", "FIXED"], default: "FIXED", index: true },
-    fromMinutes: { type: Number, required: true, min: 0, max: 1439 },
-    toMinutes: { type: Number, required: true, min: 1, max: 1440 },
-    leadTimeMinutes: { type: Number, default: 15, min: 0, max: 1440 },
-    cutoffMinutesBeforeStart: { type: Number, default: 0, min: 0, max: 1440 },
-    capacity: { type: Number, required: true, min: 1, max: 10000 },
-
-    active: { type: Boolean, default: true }, // removed index:true
-
-    sortOrder: { type: Number, default: 0 },
+    name: { type: String, required: true, trim: true, maxlength: 120 },
+    code: { type: String, required: true, unique: true, uppercase: true, trim: true },
+    latitude: { type: Number, default: null, min: -90, max: 90 },
+    longitude: { type: Number, default: null, min: -180, max: 180 },
+    serviceRadiusKm: { type: Number, default: 10, min: 0, max: 100 },
+    maxConcurrentOrders: { type: Number, default: 100, min: 1, max: 100000 },
+    prepMinutes: { type: Number, default: 8, min: 0, max: 240 },
+    active: { type: Boolean, default: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
   { timestamps: true }
 );
 
-deliverySlotSchema.index({ active: 1, sortOrder: 1, fromMinutes: 1 });
-
-export default mongoose.model("DeliverySlot", deliverySlotSchema);
+deliveryStoreSchema.index({ active: 1 });
+export default mongoose.model("DeliveryStore", deliveryStoreSchema);
