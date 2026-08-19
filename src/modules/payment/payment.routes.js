@@ -15,6 +15,7 @@ import {
   getPaymentByOrder,
   paymentFailure,
   verifyPayment,
+  reconcilePayment,
   getCodReport,
   getRazorpayReport
 } from "./payment.controller.js";
@@ -38,6 +39,13 @@ router.post(
   verifyPaymentValidation,
   validateRequest,
   verifyPayment
+);
+
+router.post(
+  "/reconcile",
+  createPaymentOrderValidation,
+  validateRequest,
+  reconcilePayment
 );
 
 router.post(

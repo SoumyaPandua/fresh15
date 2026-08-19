@@ -3,6 +3,7 @@ import Order from "../order/order.model.js";
 import User from "../user/user.model.js";
 import Profile from "../profile/profile.model.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
+import AppError from "../../utils/AppError.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
 import {
@@ -638,6 +639,8 @@ export const updateDeliveryStatusService =
 
         delivery.riderStatus =
           "ONLINE";
+      // Delivery is complete: permanently remove the last live GPS point.
+      delivery.currentLocation = null;
 
         break;
 
@@ -698,6 +701,8 @@ export const updateDeliveryStatusService =
         delivery.cancelledAt = now;
         delivery.riderStatus =
           "ONLINE";
+      // Delivery is complete: permanently remove the last live GPS point.
+      delivery.currentLocation = null;
 
         break;
     }
@@ -745,6 +750,10 @@ export const updateDeliveryStatusService =
     if (
       nextStatus === "DELIVERED"
     ) {
+      if (delivery.riderId) {
+        await User.findByIdAndUpdate(delivery.riderId, { $set: { currentLocation: null } });
+      }
+
       await releaseRider(
         delivery.riderId,
         delivery._id,
@@ -877,6 +886,11 @@ export const getDeliveryRouteService = async (
 
   if (!delivery) {
     throw new Error("Delivery not found");
+  }
+
+  const routeOrder = delivery.orderId;
+  if (delivery.status === "DELIVERED" || routeOrder?.orderStatus === "DELIVERED" || delivery.status === "CANCELLED" || delivery.status === "REJECTED") {
+    throw new AppError(410, "DELIVERY_TRACKING_ENDED", "Live delivery tracking is no longer available for this order");
   }
 
   const riderId =
@@ -1313,6 +1327,11 @@ export const getCustomerDeliveryByOrderService =
       throw new Error(
         "Delivery not found"
       );
+    }
+
+    if (order.orderStatus === "DELIVERED" || delivery.status === "DELIVERED") {
+      delivery.currentLocation = null;
+      delivery.riderStatus = "OFFLINE";
     }
 
     return delivery;

@@ -5,6 +5,7 @@ import {
   getPaymentByOrderService,
   paymentFailureService,
   verifyPaymentService,
+  reconcilePendingOnlinePaymentService,
   getCodReportService,
   getRazorpayReportService,
 } from "./payment.service.js";
@@ -37,4 +38,11 @@ export const getCodReport = async (req, res) => {
 export const getRazorpayReport = async (req, res) => {
   try { return sendResponse(res, 200, true, "Razorpay report fetched successfully", await getRazorpayReportService(req.query)); }
   catch (error) { return sendError(res, error); }
+};
+
+export const reconcilePayment = async (req, res) => {
+  try {
+    const data = await reconcilePendingOnlinePaymentService(req.user._id, req.body.orderId);
+    return sendResponse(res, 200, true, data.paymentStatus === "PAID" ? "Payment recovered successfully" : "Payment status checked", data);
+  } catch (error) { return sendError(res, error); }
 };

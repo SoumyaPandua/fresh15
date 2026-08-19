@@ -51,6 +51,13 @@ const paymentSchema = new mongoose.Schema(
       required: true,
     },
 
+    // Mirrors the order payment window so pending gateway sessions can be reconciled safely.
+    expiresAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
+
     status: {
       type: String,
       enum: [

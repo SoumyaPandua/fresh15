@@ -374,8 +374,12 @@ const registerSocketEvents = (io) => {
 
             if (!delivery) {
               console.log(
-                "❌ Rider is not assigned to this delivery"
+                "❌ Rider is not assigned to an active delivery"
               );
+              return;
+            }
+
+            if (delivery.status === "DELIVERED" || delivery.orderId?.orderStatus === "DELIVERED") {
               return;
             }
 

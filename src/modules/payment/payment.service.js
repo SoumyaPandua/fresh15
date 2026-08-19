@@ -7,15 +7,133 @@ import { finalizeOrderStockService, releaseOrderStockService } from "../order/or
 import { releaseCouponUsageService } from "../coupon/coupon.service.js";
 import Delivery from "../delivery/delivery.model.js";
 import AppError from "../../utils/AppError.js";
+import { releaseReservedDeliverySlotService } from "../deliverySlot/deliverySlot.service.js";
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+const ONLINE_PAYMENT_WINDOW_MS = 5 * 60 * 1000;
+
 const getOwnedOrder = async (userId, orderId) => {
   const order = await Order.findOne({ _id: orderId, userId, isDeleted: false });
   if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  return order;
+};
+
+
+const releaseUnpaidOrder = async (order, userId, reason = "Payment window expired") => {
+  if (order.paymentStatus === "PAID") return order;
+
+  await releaseOrderStockService(order);
+  if (order.deliverySlotId && order.deliveryDateKey) {
+    await releaseReservedDeliverySlotService(order.deliverySlotId, order.deliveryDateKey);
+    order.deliverySlotId = null;
+    order.deliveryDateKey = "";
+  }
+  if (order.couponUsageRecorded && order.couponId) {
+    await releaseCouponUsageService(order.couponId);
+    order.couponUsageRecorded = false;
+  }
+
+  order.paymentStatus = "FAILED";
+  order.orderStatus = "CANCELLED";
+  order.paymentExpiresAt = null;
+  order.updatedBy = userId;
+  await order.save();
+
+  return order;
+};
+
+const markPaymentPaid = async (order, payment, userId, gatewayPayment) => {
+  payment.razorpayPaymentId = gatewayPayment?.id || payment.razorpayPaymentId;
+  payment.razorpaySignature = payment.razorpaySignature || null;
+  payment.gatewayResponse = {
+    ...(payment.gatewayResponse || {}),
+    razorpay_order_id: payment.razorpayOrderId,
+    razorpay_payment_id: gatewayPayment?.id || payment.razorpayPaymentId,
+    status: gatewayPayment?.status || "captured",
+    method: gatewayPayment?.method,
+    recovered: Boolean(gatewayPayment?.recovered),
+  };
+  payment.status = "PAID";
+  payment.paidAt = payment.paidAt || new Date();
+  payment.expiresAt = null;
+  payment.updatedBy = userId;
+  await payment.save();
+
+  order.paymentStatus = "PAID";
+  order.orderStatus = "CONFIRMED";
+  order.paymentExpiresAt = null;
+  order.updatedBy = userId;
+  await order.save();
+  await finalizeOrderStockService(order);
+
+  try {
+    await sendNotificationService({
+      userId: order.userId,
+      title: "Payment successful",
+      message: `Payment for order ${order.orderNumber} was successful.`,
+      type: "PAYMENT_SUCCESS",
+      channel: "IN_APP",
+      metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber, paymentMethod: "ONLINE" },
+      createdBy: userId,
+    });
+  } catch (error) {
+    console.error("Payment success notification failed:", error.message);
+  }
+
+  return payment;
+};
+
+/**
+ * Reconcile a pending Razorpay order directly from Razorpay's server API.
+ * This is what makes a page refresh/network interruption recoverable: if the
+ * gateway captured the payment but the browser never reached /verify, the
+ * backend can still safely complete the order.
+ */
+export const reconcilePendingOnlinePaymentService = async (userId, orderId, { allowExpiry = true } = {}) => {
+  const order = await getOwnedOrder(userId, orderId);
+  if (order.paymentMethod !== "ONLINE" || order.paymentStatus === "PAID" || order.orderStatus === "CANCELLED") {
+    return order;
+  }
+
+  const payment = await Payment.findOne({ orderId: order._id, userId });
+  if (!payment) return order;
+
+  if (payment.status === "PAID") {
+    await markPaymentPaid(order, payment, userId, { id: payment.razorpayPaymentId, status: "captured", recovered: true });
+    return order;
+  }
+
+  // If a gateway order exists, ask Razorpay whether a payment was captured.
+  // A gateway/network failure is intentionally non-fatal: never cancel an
+  // order when we cannot determine the gateway's authoritative state.
+  if (payment.razorpayOrderId) {
+    try {
+      const paymentsResponse = await razorpay.orders.fetchPayments(payment.razorpayOrderId);
+      const gatewayPayments = Array.isArray(paymentsResponse?.items) ? paymentsResponse.items : [];
+      const captured = gatewayPayments.find((item) => {
+        const amountMatches = Number(item.amount) === Math.round(Number(order.grandTotal) * 100);
+        const currencyMatches = String(item.currency || "INR").toUpperCase() === "INR";
+        return amountMatches && currencyMatches && ["captured"].includes(String(item.status).toLowerCase());
+      });
+
+      if (captured) {
+        return await markPaymentPaid(order, payment, userId, { ...captured, recovered: true });
+      }
+    } catch (error) {
+      console.error("Razorpay payment reconciliation failed:", error.message);
+      return order;
+    }
+  }
+
+  const expiresAt = order.paymentExpiresAt || payment.expiresAt;
+  if (allowExpiry && expiresAt && new Date(expiresAt).getTime() <= Date.now()) {
+    await releaseUnpaidOrder(order, userId);
+  }
+
   return order;
 };
 
@@ -30,6 +148,13 @@ export const createPaymentOrderService = async (userId, orderId) => {
   }
   if (order.orderStatus === "CANCELLED") {
     throw new AppError(409, "ORDER_CANCELLED", "Cancelled orders cannot be paid");
+  }
+  if (order.paymentExpiresAt && new Date(order.paymentExpiresAt).getTime() <= Date.now()) {
+    const reconciled = await reconcilePendingOnlinePaymentService(userId, orderId);
+    if (reconciled.paymentStatus === "PAID") {
+      throw new AppError(409, "ORDER_ALREADY_PAID", "Payment for this order has already been completed");
+    }
+    throw new AppError(409, "PAYMENT_WINDOW_EXPIRED", "The 5-minute payment window has expired. Please place the order again.");
   }
 
   let payment = await Payment.findOne({ orderId: order._id, userId });
@@ -57,12 +182,14 @@ export const createPaymentOrderService = async (userId, orderId) => {
       currency: "INR",
       method: "ONLINE",
       status: "CREATED",
+      expiresAt: order.paymentExpiresAt || new Date(Date.now() + ONLINE_PAYMENT_WINDOW_MS),
       createdBy: userId,
     });
   } else {
     payment.razorpayOrderId = razorpayOrder.id;
     payment.amount = order.grandTotal;
     payment.status = "CREATED";
+    payment.expiresAt = order.paymentExpiresAt || new Date(Date.now() + ONLINE_PAYMENT_WINDOW_MS);
     payment.failureReason = "";
     payment.updatedBy = userId;
     await payment.save();
@@ -119,32 +246,12 @@ export const verifyPaymentService = async (userId, body) => {
     razorpay_order_id: body.razorpay_order_id,
     razorpay_payment_id: body.razorpay_payment_id,
   };
-  payment.status = "PAID";
-  payment.paidAt = new Date();
-  payment.updatedBy = userId;
-  await payment.save();
 
-  order.paymentStatus = "PAID";
-  order.orderStatus = "CONFIRMED";
-  order.updatedBy = userId;
-
-  await order.save();
-  await finalizeOrderStockService(order);
-
-  try {
-    await sendNotificationService({
-      userId: order.userId,
-      title: "Payment successful",
-      message: `Payment for order ${order.orderNumber} was successful.`,
-      type: "PAYMENT_SUCCESS",
-      channel: "IN_APP",
-      metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber, paymentMethod: "ONLINE" },
-      createdBy: userId,
-    });
-  } catch (error) {
-    console.error("Payment success notification failed:", error.message);
-  }
-
+  return await markPaymentPaid(order, payment, userId, {
+    id: body.razorpay_payment_id,
+    status: "captured",
+    recovered: false,
+  });
   return payment;
 };
 
@@ -164,6 +271,11 @@ export const paymentFailureService = async (userId, body) => {
   await payment.save();
 
   await releaseOrderStockService(order);
+  if (order.deliverySlotId && order.deliveryDateKey) {
+    await releaseReservedDeliverySlotService(order.deliverySlotId, order.deliveryDateKey);
+    order.deliverySlotId = null;
+    order.deliveryDateKey = "";
+  }
   if (order.couponUsageRecorded && order.couponId) {
     await releaseCouponUsageService(order.couponId);
     order.couponUsageRecorded = false;
@@ -191,6 +303,7 @@ export const paymentFailureService = async (userId, body) => {
 };
 
 export const getPaymentByOrderService = async (orderId, userId) => {
+  await reconcilePendingOnlinePaymentService(userId, orderId);
   const payment = await Payment.findOne({ orderId, userId })
     .populate("orderId")
     .populate("userId", "name email phone");

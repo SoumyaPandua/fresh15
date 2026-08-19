@@ -19,6 +19,7 @@ import bannerRoutes from "../modules/banner/banner.routes.js";
 import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
 import supportRoutes from "../modules/support/support.routes.js";
 import settingRoutes from "../modules/setting/setting.routes.js";
+import deliverySlotRoutes from "../modules/deliverySlot/deliverySlot.routes.js";
 
 const router = Router();
 
@@ -46,5 +47,6 @@ router.use("/banner", bannerRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/support", supportRoutes);
 router.use("/setting", settingRoutes);
+router.use("/delivery-slots", deliverySlotRoutes);
 
 export default router;

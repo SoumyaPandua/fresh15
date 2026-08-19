@@ -14,6 +14,13 @@ import { emitNewOrder, emitOrderUpdated } from "../../socket/emitters.js";
 import AppError from "../../utils/AppError.js";
 import { writeAuditLog } from "../audit/audit.service.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
+import Setting from "../setting/setting.model.js";
+import {
+  reserveDeliverySlotService,
+  releaseReservedDeliverySlotService,
+} from "../deliverySlot/deliverySlot.service.js";
+
+export const ONLINE_PAYMENT_WINDOW_MS = 5 * 60 * 1000;
 
 const ORDER_TRANSITIONS = {
   PENDING: ["CONFIRMED", "CANCELLED"],
@@ -180,6 +187,7 @@ export const createOrderService = async (userId, body) => {
   let subtotal = 0;
   const reservedItems = [];
   let createdOrder = null;
+  let reservedDeliverySlot = null;
 
   try {
     for (const item of cart.items) {
@@ -220,7 +228,17 @@ export const createOrderService = async (userId, body) => {
       couponCode = coupon.code;
     }
 
-    const deliveryCharge = 40;
+    reservedDeliverySlot = await reserveDeliverySlotService({
+      userId,
+      addressId: body.addressId,
+      slotId: body.deliverySlotId,
+      dateKey: body.deliveryDateKey,
+    });
+
+    const setting = await Setting.findOne();
+    const configuredDeliveryCharge = Number(setting?.deliveryCharge ?? 40);
+    const freeDeliveryAbove = Number(setting?.freeDeliveryAbove ?? 500);
+    const deliveryCharge = subtotal >= freeDeliveryAbove ? 0 : configuredDeliveryCharge;
     const tax = 0;
     const grandTotal = Number((subtotal + deliveryCharge + tax - discount).toFixed(2));
     const orderNumber = `ORD-${Date.now().toString().slice(-10)}-${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
@@ -229,6 +247,12 @@ export const createOrderService = async (userId, body) => {
       orderNumber,
       userId,
       addressId: body.addressId,
+      zoneId: reservedDeliverySlot.zoneId,
+      storeId: reservedDeliverySlot.storeId,
+      deliverySlotId: reservedDeliverySlot.slotId,
+      deliveryDateKey: reservedDeliverySlot.dateKey,
+      deliverySlotLabel: reservedDeliverySlot.label,
+      promisedDeliveryAt: reservedDeliverySlot.promisedAt,
       items: orderItems,
       totalItems: orderItems.length,
       totalQuantity: orderItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -242,6 +266,7 @@ export const createOrderService = async (userId, body) => {
       grandTotal,
       paymentMethod: body.paymentMethod,
       paymentStatus: "PENDING",
+      paymentExpiresAt: body.paymentMethod === "ONLINE" ? new Date(Date.now() + ONLINE_PAYMENT_WINDOW_MS) : null,
       orderStatus: body.paymentMethod === "COD" ? "CONFIRMED" : "PENDING",
       stockReserved: true,
       createdBy: userId,
@@ -299,6 +324,14 @@ export const createOrderService = async (userId, body) => {
       }
     }
 
+    if (reservedDeliverySlot) {
+      try {
+        await releaseReservedDeliverySlotService(reservedDeliverySlot.slotId, reservedDeliverySlot.dateKey);
+      } catch (slotReleaseError) {
+        console.error("Delivery slot rollback failed:", slotReleaseError.message);
+      }
+    }
+
     for (const item of reservedItems.reverse()) {
       try {
         await releaseInventoryItem(item.productId, item.quantity);
@@ -317,6 +350,15 @@ export const updateOrderStatusService = async (id, userId, orderStatus) => {
 
   if (order.orderStatus === orderStatus) {
     throw new AppError(409, "STATE_CONFLICT", "Order is already in this state");
+  }
+
+  // An online order is not a real fulfilment order until Razorpay payment is
+  // confirmed server-side. This closes the gap where an admin could move a
+  // refreshed/pending online order into packing/delivery.
+  if (order.paymentMethod === "ONLINE" && order.paymentStatus !== "PAID") {
+    if (orderStatus !== "CANCELLED") {
+      throw new AppError(409, "PAYMENT_PENDING", "Online payment is still pending. Complete the payment before processing this order.");
+    }
   }
 
   if (orderStatus === "CANCELLED" && order.paymentStatus === "PAID") {
@@ -342,6 +384,11 @@ export const updateOrderStatusService = async (id, userId, orderStatus) => {
 
   if (orderStatus === "CANCELLED") {
     await releaseOrderStockService(order);
+    if (order.deliverySlotId && order.deliveryDateKey) {
+      await releaseReservedDeliverySlotService(order.deliverySlotId, order.deliveryDateKey);
+      order.deliverySlotId = null;
+      order.deliveryDateKey = "";
+    }
     if (order.couponUsageRecorded && order.couponId) {
       await releaseCouponUsageService(order.couponId);
       order.couponUsageRecorded = false;
@@ -376,6 +423,11 @@ export const cancelMyOrderService = async (id, userId) => {
   order.updatedBy = userId;
   await order.save();
   await releaseOrderStockService(order);
+  if (order.deliverySlotId && order.deliveryDateKey) {
+    await releaseReservedDeliverySlotService(order.deliverySlotId, order.deliveryDateKey);
+    order.deliverySlotId = null;
+    order.deliveryDateKey = "";
+  }
 
   if (order.couponUsageRecorded && order.couponId) {
     await releaseCouponUsageService(order.couponId);

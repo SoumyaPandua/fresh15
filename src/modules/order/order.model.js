@@ -18,6 +18,12 @@ const orderSchema = new mongoose.Schema(
     orderNumber: { type: String, required: true, unique: true, index: true },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     addressId: { type: mongoose.Schema.Types.ObjectId, ref: "Address", required: true },
+    zoneId: { type: mongoose.Schema.Types.ObjectId, ref: "DeliveryZone", default: null, index: true },
+    storeId: { type: mongoose.Schema.Types.ObjectId, ref: "DeliveryStore", default: null, index: true },
+    deliverySlotId: { type: mongoose.Schema.Types.ObjectId, ref: "DeliverySlot", default: null },
+    deliveryDateKey: { type: String, default: "" },
+    deliverySlotLabel: { type: String, default: "" },
+    promisedDeliveryAt: { type: Date, default: null, index: true },
     items: { type: [orderItemSchema], required: true },
     totalItems: { type: Number, required: true },
     totalQuantity: { type: Number, required: true },
@@ -31,6 +37,8 @@ const orderSchema = new mongoose.Schema(
     grandTotal: { type: Number, required: true, min: 0 },
     paymentMethod: { type: String, enum: ["COD", "ONLINE"], required: true },
     paymentStatus: { type: String, enum: ["PENDING", "PAID", "FAILED", "REFUNDED"], default: "PENDING" },
+    // Online payments have a hard 5-minute payment window. This survives page reloads.
+    paymentExpiresAt: { type: Date, default: null, index: true },
     orderStatus: {
       type: String,
       enum: ["PENDING", "CONFIRMED", "PACKING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED"],

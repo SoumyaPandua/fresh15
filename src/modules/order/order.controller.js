@@ -9,6 +9,7 @@ import {
   cancelMyOrderService,
   adminArchiveOrderService,
 } from "./order.service.js";
+import { reconcilePendingOnlinePaymentService } from "../payment/payment.service.js";
 
 export const getMyOrders = async (req, res) => {
   try { return sendResponse(res, 200, true, "Orders fetched successfully", await getMyOrdersService(req.user._id, req.query)); }
@@ -16,7 +17,14 @@ export const getMyOrders = async (req, res) => {
 };
 
 export const getOrderById = async (req, res) => {
-  try { return sendResponse(res, 200, true, "Order fetched successfully", await getOrderByIdService(req.params.id, req.user._id)); }
+  try {
+    let order = await getOrderByIdService(req.params.id, req.user._id);
+    if (order.paymentMethod === "ONLINE" && order.paymentStatus !== "PAID") {
+      await reconcilePendingOnlinePaymentService(req.user._id, req.params.id);
+      order = await getOrderByIdService(req.params.id, req.user._id);
+    }
+    return sendResponse(res, 200, true, "Order fetched successfully", order);
+  }
   catch (error) { return sendError(res, error); }
 };
 
@@ -43,6 +51,13 @@ export const archiveOrder = async (req, res) => {
 };
 
 export const getAllOrders = async (req, res) => {
-  try { return sendResponse(res, 200, true, "Orders fetched successfully", await getAllOrdersService(req.query)); }
+  try {
+    const data = await getAllOrdersService(req.query);
+    const orders = Array.isArray(data) ? data : (data?.items ?? []);
+    await Promise.all(orders.filter((o) => o.paymentMethod === "ONLINE" && o.paymentStatus !== "PAID").map((o) =>
+      reconcilePendingOnlinePaymentService(o.userId?._id ?? o.userId, o._id).catch((error) => console.error("Admin payment reconciliation failed:", error.message))
+    ));
+    return sendResponse(res, 200, true, "Orders fetched successfully", await getAllOrdersService(req.query));
+  }
   catch (error) { return sendError(res, error); }
 };

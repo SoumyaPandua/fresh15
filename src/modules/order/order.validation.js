@@ -7,6 +7,17 @@ export const createOrderValidation = [
     .isMongoId()
     .withMessage("Invalid address"),
 
+  body("deliverySlotId")
+    .notEmpty()
+    .withMessage("Delivery slot is required")
+    .isMongoId()
+    .withMessage("Invalid delivery slot"),
+
+  body("deliveryDateKey")
+    .notEmpty()
+    .matches(/^\d{4}-\d{2}-\d{2}$/)
+    .withMessage("Invalid delivery date"),
+
   body("paymentMethod")
     .notEmpty()
     .withMessage("Payment method is required")
