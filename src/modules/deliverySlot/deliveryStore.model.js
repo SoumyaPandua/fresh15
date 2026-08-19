@@ -17,4 +17,6 @@ const deliveryStoreSchema = new mongoose.Schema(
 );
 
 deliveryStoreSchema.index({ active: 1 });
-export default mongoose.models.DeliveryStore || mongoose.model("DeliveryStore", deliveryStoreSchema);
+
+export default mongoose.models.DeliveryStore ||
+  mongoose.model("DeliveryStore", deliveryStoreSchema);
