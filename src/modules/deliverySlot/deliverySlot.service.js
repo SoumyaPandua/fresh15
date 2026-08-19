@@ -39,8 +39,19 @@ const resolveStore = async (address) => {
   const stores = await DeliveryStore.find({ active: true }).sort({ createdAt: 1 });
   if (!stores.length) throw new AppError(503, "FULFILLMENT_UNAVAILABLE", "No active store is available for this delivery area");
 
-  const lat = Number(address.latitude);
-  const lng = Number(address.longitude);
+  const lat =
+  address.latitude !== null &&
+  address.latitude !== undefined &&
+  address.latitude !== ""
+    ? Number(address.latitude)
+    : NaN;
+
+const lng =
+  address.longitude !== null &&
+  address.longitude !== undefined &&
+  address.longitude !== ""
+    ? Number(address.longitude)
+    : NaN;
   const withDistance = stores.map((store) => ({
     store,
     distanceKm: haversineKm(lat, lng, Number(store.latitude), Number(store.longitude)),
