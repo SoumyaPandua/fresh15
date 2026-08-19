@@ -9,7 +9,7 @@ const deliveryStoreSchema = new mongoose.Schema(
     serviceRadiusKm: { type: Number, default: 10, min: 0, max: 100 },
     maxConcurrentOrders: { type: Number, default: 100, min: 1, max: 100000 },
     prepMinutes: { type: Number, default: 8, min: 0, max: 240 },
-    active: { type: Boolean, default: true, index: true },
+    active: { type: Boolean, default: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
@@ -17,4 +17,4 @@ const deliveryStoreSchema = new mongoose.Schema(
 );
 
 deliveryStoreSchema.index({ active: 1 });
-export default mongoose.model("DeliveryStore", deliveryStoreSchema);
+export default mongoose.models.DeliveryStore || mongoose.model("DeliveryStore", deliveryStoreSchema);
