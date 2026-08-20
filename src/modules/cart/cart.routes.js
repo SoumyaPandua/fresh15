@@ -6,6 +6,7 @@ import validateRequest from "../../middleware/validateRequest.middleware.js";
 import {
   addToCartValidation,
   updateCartItemValidation,
+  updateCartItemSubstitutionValidation,
 } from "./cart.validation.js";
 
 import {
@@ -14,6 +15,7 @@ import {
   getMyCart,
   removeCartItem,
   updateCartItem,
+  updateCartItemSubstitution,
 } from "./cart.controller.js";
 
 const router = express.Router();
@@ -34,6 +36,13 @@ router.put(
   updateCartItemValidation,
   validateRequest,
   updateCartItem
+);
+
+router.patch(
+  "/:productId/substitution",
+  updateCartItemSubstitutionValidation,
+  validateRequest,
+  updateCartItemSubstitution
 );
 
 router.delete("/clear", clearCart);

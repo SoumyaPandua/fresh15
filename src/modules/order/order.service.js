@@ -101,7 +101,12 @@ const finalizeInventoryItem = async (productId, quantity) => {
   const inventory = await Inventory.findOneAndUpdate(
     { productId, reservedStock: { $gte: quantity }, currentStock: { $gte: quantity } },
     [
-      { $set: { currentStock: { $subtract: ["$currentStock", quantity] }, reservedStock: { $subtract: ["$reservedStock", quantity] } } },
+      {
+        $set: {
+          currentStock: { $subtract: ["$currentStock", quantity] },
+          reservedStock: { $subtract: ["$reservedStock", quantity] },
+        },
+      },
       {
         $set: {
           availableStock: { $max: [0, { $subtract: ["$currentStock", "$reservedStock"] }] },
@@ -161,22 +166,99 @@ export const getMyOrdersService = async (userId, query = {}) => {
     base.skip(pagination.skip).limit(pagination.limit),
     Order.countDocuments(filter),
   ]);
-  return { items: orders, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
+  return {
+    items: orders,
+    pagination: buildPagination({
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+    }),
+  };
 };
 
 export const getOrderByIdService = async (id, userId) => {
-  const order = await Order.findOne({ _id: id, userId, isDeleted: false }).populate("addressId");
-  if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  const order = await Order.findOne({
+    _id: id,
+    userId,
+    isDeleted: false,
+  }).populate("addressId");
+
+  if (!order) {
+    throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  }
+
   return order;
+};
+
+const buildOrderSubstitutionSnapshot = async (cartItem, product) => {
+  const preference = cartItem.substitutionPreference || {
+    type: "CALL_ME",
+    preferredReplacementProductId: null,
+  };
+
+  const snapshot = {
+    type: preference.type || "CALL_ME",
+    preferredReplacementProductId: preference.preferredReplacementProductId || null,
+    preferredReplacementProductName: "",
+    preferredReplacementSku: "",
+    preferredReplacementImage: null,
+  };
+
+  if (snapshot.type !== "SPECIFIC_ITEM" || !snapshot.preferredReplacementProductId) {
+    snapshot.preferredReplacementProductId = null;
+    return snapshot;
+  }
+
+  if (snapshot.preferredReplacementProductId.toString() === product._id.toString()) {
+    throw new AppError(
+      400,
+      "INVALID_REPLACEMENT_PRODUCT",
+      "Preferred replacement must be different from the ordered product"
+    );
+  }
+
+  const replacement = await Product.findOne({
+    _id: snapshot.preferredReplacementProductId,
+    isDeleted: false,
+    isActive: true,
+  }).select("name images sku categoryId");
+
+  if (!replacement) {
+    throw new AppError(
+      409,
+      "REPLACEMENT_PRODUCT_UNAVAILABLE",
+      "Preferred replacement product is no longer available"
+    );
+  }
+
+  if (
+    product.categoryId &&
+    replacement.categoryId &&
+    product.categoryId.toString() !== replacement.categoryId.toString()
+  ) {
+    throw new AppError(
+      409,
+      "REPLACEMENT_CATEGORY_CONFLICT",
+      "Preferred replacement must belong to the same category"
+    );
+  }
+
+  snapshot.preferredReplacementProductName = replacement.name;
+  snapshot.preferredReplacementSku = replacement.sku;
+  snapshot.preferredReplacementImage = replacement.images?.[0] || null;
+
+  return snapshot;
 };
 
 export const createOrderService = async (userId, body) => {
   const address = await Address.findOne({ _id: body.addressId, userId });
-  if (!address) throw new AppError(404, "ADDRESS_NOT_FOUND", "Address not found");
+  if (!address) {
+    throw new AppError(404, "ADDRESS_NOT_FOUND", "Address not found");
+  }
 
   const cart = await Cart.findOne({ userId }).populate({
     path: "items.productId",
-    select: "name images sku sellingPrice isActive isDeleted",
+    select: "name images sku sellingPrice isActive isDeleted categoryId",
   });
 
   if (!cart || cart.items.length === 0) {
@@ -192,8 +274,13 @@ export const createOrderService = async (userId, body) => {
   try {
     for (const item of cart.items) {
       const product = item.productId;
+
       if (!product || product.isDeleted || product.isActive === false) {
-        throw new AppError(409, "PRODUCT_UNAVAILABLE", "A product in your cart is no longer available");
+        throw new AppError(
+          409,
+          "PRODUCT_UNAVAILABLE",
+          "A product in your cart is no longer available"
+        );
       }
 
       const price = Number(product.sellingPrice);
@@ -203,6 +290,9 @@ export const createOrderService = async (userId, body) => {
       await reserveInventoryItem(product._id, quantity);
       reservedItems.push({ productId: product._id, quantity });
 
+      const substitutionPreference =
+        await buildOrderSubstitutionSnapshot(item, product);
+
       orderItems.push({
         productId: product._id,
         productName: product.name,
@@ -211,7 +301,9 @@ export const createOrderService = async (userId, body) => {
         price,
         quantity,
         subtotal: itemSubtotal,
+        substitutionPreference,
       });
+
       subtotal += itemSubtotal;
     }
 
@@ -238,10 +330,17 @@ export const createOrderService = async (userId, body) => {
     const setting = await Setting.findOne();
     const configuredDeliveryCharge = Number(setting?.deliveryCharge ?? 40);
     const freeDeliveryAbove = Number(setting?.freeDeliveryAbove ?? 500);
-    const deliveryCharge = subtotal >= freeDeliveryAbove ? 0 : configuredDeliveryCharge;
+    const deliveryCharge =
+      subtotal >= freeDeliveryAbove ? 0 : configuredDeliveryCharge;
     const tax = 0;
-    const grandTotal = Number((subtotal + deliveryCharge + tax - discount).toFixed(2));
-    const orderNumber = `ORD-${Date.now().toString().slice(-10)}-${Math.floor(Math.random() * 1000).toString().padStart(3, "0")}`;
+    const grandTotal = Number(
+      (subtotal + deliveryCharge + tax - discount).toFixed(2)
+    );
+    const orderNumber = `ORD-${Date.now()
+      .toString()
+      .slice(-10)}-${Math.floor(Math.random() * 1000)
+      .toString()
+      .padStart(3, "0")}`;
 
     const order = await Order.create({
       orderNumber,
@@ -255,7 +354,10 @@ export const createOrderService = async (userId, body) => {
       promisedDeliveryAt: reservedDeliverySlot.promisedAt,
       items: orderItems,
       totalItems: orderItems.length,
-      totalQuantity: orderItems.reduce((sum, item) => sum + item.quantity, 0),
+      totalQuantity: orderItems.reduce(
+        (sum, item) => sum + item.quantity,
+        0
+      ),
       subtotal,
       deliveryCharge,
       discount,
@@ -266,8 +368,12 @@ export const createOrderService = async (userId, body) => {
       grandTotal,
       paymentMethod: body.paymentMethod,
       paymentStatus: "PENDING",
-      paymentExpiresAt: body.paymentMethod === "ONLINE" ? new Date(Date.now() + ONLINE_PAYMENT_WINDOW_MS) : null,
-      orderStatus: body.paymentMethod === "COD" ? "CONFIRMED" : "PENDING",
+      paymentExpiresAt:
+        body.paymentMethod === "ONLINE"
+          ? new Date(Date.now() + ONLINE_PAYMENT_WINDOW_MS)
+          : null,
+      orderStatus:
+        body.paymentMethod === "COD" ? "CONFIRMED" : "PENDING",
       stockReserved: true,
       createdBy: userId,
       notes: body.notes || "",
@@ -304,14 +410,19 @@ export const createOrderService = async (userId, body) => {
         message: `Your order ${order.orderNumber} has been placed successfully.`,
         type: "ORDER_PLACED",
         channel: "IN_APP",
-        metadata: { orderId: order._id.toString(), orderNumber: order.orderNumber },
+        metadata: {
+          orderId: order._id.toString(),
+          orderNumber: order.orderNumber,
+        },
         createdBy: userId,
       });
     } catch (error) {
       console.error("Order placed notification failed:", error.message);
     }
 
-    return await Order.findById(order._id).populate("addressId").populate("userId", "name email phone");
+    return await Order.findById(order._id)
+      .populate("addressId")
+      .populate("userId", "name email phone");
   } catch (error) {
     if (createdOrder) {
       try {
@@ -326,7 +437,10 @@ export const createOrderService = async (userId, body) => {
 
     if (reservedDeliverySlot) {
       try {
-        await releaseReservedDeliverySlotService(reservedDeliverySlot.slotId, reservedDeliverySlot.dateKey);
+        await releaseReservedDeliverySlotService(
+          reservedDeliverySlot.slotId,
+          reservedDeliverySlot.dateKey
+        );
       } catch (slotReleaseError) {
         console.error("Delivery slot rollback failed:", slotReleaseError.message);
       }
@@ -344,30 +458,50 @@ export const createOrderService = async (userId, body) => {
   }
 };
 
-export const updateOrderStatusService = async (id, userId, orderStatus) => {
-  const order = await Order.findOne({ _id: id, isDeleted: false });
-  if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+export const updateOrderStatusService = async (
+  id,
+  userId,
+  orderStatus
+) => {
+  const order = await Order.findOne({
+    _id: id,
+    isDeleted: false,
+  });
+
+  if (!order) {
+    throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  }
 
   if (order.orderStatus === orderStatus) {
     throw new AppError(409, "STATE_CONFLICT", "Order is already in this state");
   }
 
-  // An online order is not a real fulfilment order until Razorpay payment is
-  // confirmed server-side. This closes the gap where an admin could move a
-  // refreshed/pending online order into packing/delivery.
   if (order.paymentMethod === "ONLINE" && order.paymentStatus !== "PAID") {
     if (orderStatus !== "CANCELLED") {
-      throw new AppError(409, "PAYMENT_PENDING", "Online payment is still pending. Complete the payment before processing this order.");
+      throw new AppError(
+        409,
+        "PAYMENT_PENDING",
+        "Online payment is still pending. Complete the payment before processing this order."
+      );
     }
   }
 
   if (orderStatus === "CANCELLED" && order.paymentStatus === "PAID") {
-    throw new AppError(409, "REFUND_REQUIRED", "A paid order cannot be cancelled without a refund workflow");
+    throw new AppError(
+      409,
+      "REFUND_REQUIRED",
+      "A paid order cannot be cancelled without a refund workflow"
+    );
   }
 
   const allowed = ORDER_TRANSITIONS[order.orderStatus] || [];
+
   if (!allowed.includes(orderStatus)) {
-    throw new AppError(409, "INVALID_ORDER_TRANSITION", `Cannot move order from ${order.orderStatus} to ${orderStatus}`);
+    throw new AppError(
+      409,
+      "INVALID_ORDER_TRANSITION",
+      `Cannot move order from ${order.orderStatus} to ${orderStatus}`
+    );
   }
 
   if (orderStatus === "DELIVERED" && order.paymentMethod === "COD") {
@@ -384,11 +518,16 @@ export const updateOrderStatusService = async (id, userId, orderStatus) => {
 
   if (orderStatus === "CANCELLED") {
     await releaseOrderStockService(order);
+
     if (order.deliverySlotId && order.deliveryDateKey) {
-      await releaseReservedDeliverySlotService(order.deliverySlotId, order.deliveryDateKey);
+      await releaseReservedDeliverySlotService(
+        order.deliverySlotId,
+        order.deliveryDateKey
+      );
       order.deliverySlotId = null;
       order.deliveryDateKey = "";
     }
+
     if (order.couponUsageRecorded && order.couponId) {
       await releaseCouponUsageService(order.couponId);
       order.couponUsageRecorded = false;
@@ -408,23 +547,43 @@ export const updateOrderStatusService = async (id, userId, orderStatus) => {
 };
 
 export const cancelMyOrderService = async (id, userId) => {
-  const order = await Order.findOne({ _id: id, userId, isDeleted: false });
-  if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  const order = await Order.findOne({
+    _id: id,
+    userId,
+    isDeleted: false,
+  });
+
+  if (!order) {
+    throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  }
 
   if (!["PENDING", "CONFIRMED"].includes(order.orderStatus)) {
-    throw new AppError(409, "ORDER_CANCELLATION_CONFLICT", "Order can no longer be cancelled");
+    throw new AppError(
+      409,
+      "ORDER_CANCELLATION_CONFLICT",
+      "Order can no longer be cancelled"
+    );
   }
 
   if (order.paymentStatus === "PAID") {
-    throw new AppError(409, "REFUND_REQUIRED", "A paid order cannot be cancelled without a refund workflow");
+    throw new AppError(
+      409,
+      "REFUND_REQUIRED",
+      "A paid order cannot be cancelled without a refund workflow"
+    );
   }
 
   order.orderStatus = "CANCELLED";
   order.updatedBy = userId;
   await order.save();
+
   await releaseOrderStockService(order);
+
   if (order.deliverySlotId && order.deliveryDateKey) {
-    await releaseReservedDeliverySlotService(order.deliverySlotId, order.deliveryDateKey);
+    await releaseReservedDeliverySlotService(
+      order.deliverySlotId,
+      order.deliveryDateKey
+    );
     order.deliverySlotId = null;
     order.deliveryDateKey = "";
   }
@@ -439,30 +598,53 @@ export const cancelMyOrderService = async (id, userId) => {
 };
 
 export const adminArchiveOrderService = async (id, adminId) => {
-  const order = await Order.findOne({ _id: id, isDeleted: false });
-  if (!order) throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  const order = await Order.findOne({
+    _id: id,
+    isDeleted: false,
+  });
+
+  if (!order) {
+    throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+  }
 
   order.isDeleted = true;
   order.deletedAt = new Date();
   order.deletedBy = adminId;
   order.updatedBy = adminId;
   await order.save();
-  await writeAuditLog({ actorId: adminId, action: "ORDER_ARCHIVED", resourceType: "Order", resourceId: order._id });
+
+  await writeAuditLog({
+    actorId: adminId,
+    action: "ORDER_ARCHIVED",
+    resourceType: "Order",
+    resourceId: order._id,
+  });
 };
 
 export const getAllOrdersService = async (query = {}) => {
   const pagination = parsePagination(query);
   const filter = { isDeleted: false };
+
   const base = Order.find(filter)
     .populate("addressId")
     .populate("userId", "name email phone profileImage")
     .sort({ createdAt: -1 });
+
   if (!pagination.hasPagination) return await base;
+
   const [orders, total] = await Promise.all([
     base.skip(pagination.skip).limit(pagination.limit),
     Order.countDocuments(filter),
   ]);
-  return { items: orders, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
+
+  return {
+    items: orders,
+    pagination: buildPagination({
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+    }),
+  };
 };
 
 export const getOrderTransitionMap = () => ORDER_TRANSITIONS;

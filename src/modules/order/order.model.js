@@ -1,5 +1,47 @@
 import mongoose from "mongoose";
 
+const SUBSTITUTION_PREFERENCES = [
+  "CALL_ME",
+  "BEST_SIMILAR_ITEM",
+  "DO_NOT_SUBSTITUTE",
+  "SPECIFIC_ITEM",
+];
+
+const substitutionPreferenceSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: SUBSTITUTION_PREFERENCES,
+      default: "CALL_ME",
+      required: true,
+    },
+
+    preferredReplacementProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      default: null,
+    },
+
+    preferredReplacementProductName: {
+      type: String,
+      default: "",
+    },
+
+    preferredReplacementSku: {
+      type: String,
+      default: "",
+    },
+
+    preferredReplacementImage: {
+      type: String,
+      default: null,
+    },
+  },
+  {
+    _id: false,
+  }
+);
+
 const orderItemSchema = new mongoose.Schema(
   {
     productId: { type: mongoose.Schema.Types.ObjectId, ref: "Product", required: true },
@@ -9,6 +51,11 @@ const orderItemSchema = new mongoose.Schema(
     price: { type: Number, required: true, min: 0 },
     quantity: { type: Number, required: true, min: 1 },
     subtotal: { type: Number, required: true, min: 0 },
+
+    substitutionPreference: {
+      type: substitutionPreferenceSchema,
+      default: () => ({ type: "CALL_ME" }),
+    },
   },
   { _id: false }
 );
@@ -37,7 +84,6 @@ const orderSchema = new mongoose.Schema(
     grandTotal: { type: Number, required: true, min: 0 },
     paymentMethod: { type: String, enum: ["COD", "ONLINE"], required: true },
     paymentStatus: { type: String, enum: ["PENDING", "PAID", "FAILED", "REFUNDED"], default: "PENDING" },
-    // Online payments have a hard 5-minute payment window. This survives page reloads.
     paymentExpiresAt: { type: Date, default: null, index: true },
     orderStatus: {
       type: String,
@@ -59,6 +105,8 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ orderStatus: 1, createdAt: -1 });
+
+export { SUBSTITUTION_PREFERENCES };
 
 const Order = mongoose.model("Order", orderSchema);
 export default Order;

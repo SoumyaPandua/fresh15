@@ -7,6 +7,7 @@ import {
   getMyCartService,
   removeCartItemService,
   updateCartItemService,
+  updateCartItemSubstitutionService,
 } from "./cart.service.js";
 
 export const getMyCart = async (req, res) => {
@@ -38,6 +39,26 @@ export const updateCartItem = async (req, res) => {
     );
 
     return sendResponse(res, 200, true, "Cart updated successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const updateCartItemSubstitution = async (req, res) => {
+  try {
+    const data = await updateCartItemSubstitutionService(
+      req.user._id,
+      req.params.productId,
+      req.body.substitutionPreference
+    );
+
+    return sendResponse(
+      res,
+      200,
+      true,
+      "Substitution preference updated successfully",
+      data
+    );
   } catch (error) {
     return sendError(res, error);
   }

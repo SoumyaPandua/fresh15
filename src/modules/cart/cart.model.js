@@ -1,5 +1,32 @@
 import mongoose from "mongoose";
 
+const SUBSTITUTION_PREFERENCES = [
+  "CALL_ME",
+  "BEST_SIMILAR_ITEM",
+  "DO_NOT_SUBSTITUTE",
+  "SPECIFIC_ITEM",
+];
+
+const substitutionPreferenceSchema = new mongoose.Schema(
+  {
+    type: {
+      type: String,
+      enum: SUBSTITUTION_PREFERENCES,
+      default: "CALL_ME",
+      required: true,
+    },
+
+    preferredReplacementProductId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Product",
+      default: null,
+    },
+  },
+  {
+    _id: false,
+  }
+);
+
 const cartItemSchema = new mongoose.Schema(
   {
     productId: {
@@ -22,6 +49,11 @@ const cartItemSchema = new mongoose.Schema(
     subtotal: {
       type: Number,
       required: true,
+    },
+
+    substitutionPreference: {
+      type: substitutionPreferenceSchema,
+      default: () => ({ type: "CALL_ME" }),
     },
   },
   {
@@ -77,6 +109,8 @@ cartSchema.methods.calculateTotals = function () {
     0
   );
 };
+
+export { SUBSTITUTION_PREFERENCES };
 
 const Cart = mongoose.model("Cart", cartSchema);
 
