@@ -504,8 +504,12 @@ export const updateOrderStatusService = async (
     );
   }
 
-  if (orderStatus === "DELIVERED" && order.paymentMethod === "COD") {
-    order.paymentStatus = "PAID";
+  if (orderStatus === "DELIVERED" && order.paymentMethod === "COD" && order.paymentStatus !== "PAID") {
+    throw new AppError(
+      409,
+      "COD_PAYMENT_REQUIRED",
+      "Collect COD payment before marking the order as delivered"
+    );
   }
 
   order.orderStatus = orderStatus;

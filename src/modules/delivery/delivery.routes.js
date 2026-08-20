@@ -12,6 +12,7 @@ import {
 
 import {
   assignRider,
+  collectCodPayment,
   createDelivery,
   deleteDelivery,
   getAllDeliveries,
@@ -29,25 +30,13 @@ router.use(authMiddleware);
 
 /* ---------------- Partner ---------------- */
 
-router.get(
-  "/my/active",
-  authorize("PARTNER"),
-  getMyActiveDelivery
-);
+router.get("/my/active", authorize("PARTNER"), getMyActiveDelivery);
 
-router.get(
-  "/my",
-  authorize("PARTNER"),
-  getMyDeliveries
-);
+router.get("/my", authorize("PARTNER"), getMyDeliveries);
 
 /* ---------------- Admin ---------------- */
 
-router.get(
-  "/",
-  authorize("ADMIN", "SUPER_ADMIN"),
-  getAllDeliveries
-);
+router.get("/", authorize("ADMIN", "SUPER_ADMIN"), getAllDeliveries);
 
 router.post(
   "/",
@@ -63,6 +52,14 @@ router.patch(
   assignRiderValidation,
   validateRequest,
   assignRider
+);
+
+/* ---------------- Partner COD payment ---------------- */
+
+router.post(
+  "/:id/cod-payment",
+  authorize("PARTNER"),
+  collectCodPayment
 );
 
 /* ---------------- Shared ---------------- */
@@ -83,12 +80,7 @@ router.get(
 
 router.get(
   "/:id/route",
-  authorize(
-    "ADMIN",
-    "SUPER_ADMIN",
-    "PARTNER",
-    "CUSTOMER"
-  ),
+  authorize("ADMIN", "SUPER_ADMIN", "PARTNER", "CUSTOMER"),
   getDeliveryRoute
 );
 

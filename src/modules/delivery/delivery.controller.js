@@ -13,20 +13,43 @@ import {
   getCustomerDeliveryByOrderService,
   getDeliveryRouteService,
 } from "./delivery.service.js";
+import { collectCodPaymentService } from "./cod-payment.service.js";
 
-export const getAllDeliveries = async (
-  req,
-  res
-) => {
+export const getAllDeliveries = async (req, res) => {
   try {
-    const data =
-      await getAllDeliveriesService(req.query);
+    const data = await getAllDeliveriesService(req.query);
+    return sendResponse(res, 200, true, "Deliveries fetched successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
 
+export const getDeliveryById = async (req, res) => {
+  try {
+    const data = await getDeliveryByIdService(req.params.id, req.user._id, req.user.role);
+    return sendResponse(res, 200, true, "Delivery fetched successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const getMyDeliveries = async (req, res) => {
+  try {
+    const data = await getMyDeliveriesService(req.user._id, req.query);
+    return sendResponse(res, 200, true, "My deliveries fetched successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const getMyActiveDelivery = async (req, res) => {
+  try {
+    const data = await getMyActiveDeliveryService(req.user._id);
     return sendResponse(
       res,
       200,
       true,
-      "Deliveries fetched successfully",
+      data ? "Active delivery fetched successfully" : "No active delivery",
       data
     );
   } catch (error) {
@@ -34,208 +57,70 @@ export const getAllDeliveries = async (
   }
 };
 
-export const getDeliveryById = async (
-  req,
-  res
-) => {
+export const createDelivery = async (req, res) => {
   try {
-    const data =
-      await getDeliveryByIdService(
-        req.params.id,
-        req.user._id,
-        req.user.role
-      );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Delivery fetched successfully",
-      data
-    );
+    const data = await createDeliveryService(req.user._id, req.body);
+    return sendResponse(res, 201, true, "Delivery created successfully", data);
   } catch (error) {
     return sendError(res, error);
   }
 };
 
-export const getMyDeliveries = async (
-  req,
-  res
-) => {
+export const assignRider = async (req, res) => {
   try {
-    const data =
-      await getMyDeliveriesService(
-        req.user._id,
-        req.query
-      );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "My deliveries fetched successfully",
-      data
-    );
+    const data = await assignRiderService(req.params.id, req.body.riderId, req.user._id);
+    return sendResponse(res, 200, true, "Rider assigned successfully", data);
   } catch (error) {
     return sendError(res, error);
   }
 };
 
-export const getMyActiveDelivery = async (
-  req,
-  res
-) => {
+export const updateDeliveryStatus = async (req, res) => {
   try {
-    const data =
-      await getMyActiveDeliveryService(
-        req.user._id
-      );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      data
-        ? "Active delivery fetched successfully"
-        : "No active delivery",
-      data
+    const data = await updateDeliveryStatusService(
+      req.params.id,
+      req.body.status,
+      req.user._id,
+      req.user.role
     );
+    return sendResponse(res, 200, true, "Delivery status updated successfully", data);
   } catch (error) {
     return sendError(res, error);
   }
 };
 
-export const createDelivery = async (
-  req,
-  res
-) => {
+export const collectCodPayment = async (req, res) => {
   try {
-    const data =
-      await createDeliveryService(
-        req.user._id,
-        req.body
-      );
-
-    return sendResponse(
-      res,
-      201,
-      true,
-      "Delivery created successfully",
-      data
-    );
+    const data = await collectCodPaymentService(req.params.id, req.user._id, req.user.role);
+    return sendResponse(res, 200, true, "COD payment collected successfully", data);
   } catch (error) {
     return sendError(res, error);
   }
 };
 
-export const assignRider = async (
-  req,
-  res
-) => {
+export const getDeliveryRoute = async (req, res) => {
   try {
-    const data =
-      await assignRiderService(
-        req.params.id,
-        req.body.riderId,
-        req.user._id
-      );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Rider assigned successfully",
-      data
-    );
+    const data = await getDeliveryRouteService(req.params.id, req.user._id, req.user.role);
+    return sendResponse(res, 200, true, "Delivery route fetched successfully", data);
   } catch (error) {
     return sendError(res, error);
   }
 };
 
-export const updateDeliveryStatus =
-  async (req, res) => {
-    try {
-      const data =
-        await updateDeliveryStatusService(
-          req.params.id,
-          req.body.status,
-          req.user._id,
-          req.user.role
-        );
-
-      return sendResponse(
-        res,
-        200,
-        true,
-        "Delivery status updated successfully",
-        data
-      );
-    } catch (error) {
-    return sendError(res, error);
-  }
-  };
-
-export const getDeliveryRoute = async (
-  req,
-  res
-) => {
+export const deleteDelivery = async (req, res) => {
   try {
-    const data =
-      await getDeliveryRouteService(
-        req.params.id,
-        req.user._id,
-        req.user.role
-      );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Delivery route fetched successfully",
-      data
-    );
+    await deleteDeliveryService(req.params.id);
+    return sendResponse(res, 200, true, "Delivery deleted successfully");
   } catch (error) {
     return sendError(res, error);
   }
 };
 
-export const deleteDelivery = async (
-  req,
-  res
-) => {
+export const getCustomerDeliveryByOrder = async (req, res) => {
   try {
-    await deleteDeliveryService(
-      req.params.id
-    );
-
-    return sendResponse(
-      res,
-      200,
-      true,
-      "Delivery deleted successfully"
-    );
+    const data = await getCustomerDeliveryByOrderService(req.params.orderId, req.user._id);
+    return sendResponse(res, 200, true, "Delivery fetched successfully", data);
   } catch (error) {
     return sendError(res, error);
   }
 };
-
-export const getCustomerDeliveryByOrder =
-  async (req, res) => {
-    try {
-      const data =
-        await getCustomerDeliveryByOrderService(
-          req.params.orderId,
-          req.user._id
-        );
-
-      return sendResponse(
-        res,
-        200,
-        true,
-        "Delivery fetched successfully",
-        data
-      );
-    } catch (error) {
-    return sendError(res, error);
-  }
-  };

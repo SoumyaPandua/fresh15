@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import AppError from "../../utils/AppError.js";
 
 const SUBSTITUTION_PREFERENCES = [
   "CALL_ME",
@@ -105,6 +106,24 @@ const orderSchema = new mongoose.Schema(
 
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ orderStatus: 1, createdAt: -1 });
+
+// Never allow a COD order to become DELIVERED while its payment is still pending.
+// This protects every save path, including the delivery module which updates
+// orderStatus directly instead of going through updateOrderStatusService.
+orderSchema.pre("save", function () {
+  if (
+    this.isModified("orderStatus") &&
+    this.orderStatus === "DELIVERED" &&
+    this.paymentMethod === "COD" &&
+    this.paymentStatus !== "PAID"
+  ) {
+    throw new AppError(
+      409,
+      "COD_PAYMENT_REQUIRED",
+      "COD payment must be collected before the order can be delivered"
+    );
+  }
+});
 
 export { SUBSTITUTION_PREFERENCES };
 
