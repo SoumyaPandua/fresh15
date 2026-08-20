@@ -3,11 +3,15 @@ import express from "express";
 import authMiddleware from "../../middleware/auth.middleware.js";
 import authorize from "../../middleware/authorize.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
+import { uploadSingleImage } from "../../middleware/upload.middleware.js";
 
 import {
   assignRiderValidation,
   createDeliveryValidation,
   updateDeliveryStatusValidation,
+  verifyDeliveryOtpValidation,
+  uploadDeliveryProofValidation,
+  failDeliveryValidation,
 } from "./delivery.validation.js";
 
 import {
@@ -22,6 +26,11 @@ import {
   updateDeliveryStatus,
   getCustomerDeliveryByOrder,
   getDeliveryRoute,
+  getCustomerDeliveryOtp,
+  verifyDeliveryOtp,
+  customerConfirmDelivery,
+  uploadDeliveryProof,
+  failDelivery,
 } from "./delivery.controller.js";
 
 const router = express.Router();
@@ -60,6 +69,45 @@ router.post(
   "/:id/cod-payment",
   authorize("PARTNER"),
   collectCodPayment
+);
+
+/* ---------------- Delivery proof / OTP ---------------- */
+
+router.get(
+  "/order/:orderId/otp",
+  authorize("CUSTOMER"),
+  getCustomerDeliveryOtp
+);
+
+router.post(
+  "/:id/verify-otp",
+  authorize("PARTNER"),
+  verifyDeliveryOtpValidation,
+  validateRequest,
+  verifyDeliveryOtp
+);
+
+router.post(
+  "/:id/customer-confirm",
+  authorize("CUSTOMER"),
+  customerConfirmDelivery
+);
+
+router.post(
+  "/:id/proof",
+  authorize("PARTNER"),
+  uploadSingleImage,
+  uploadDeliveryProofValidation,
+  validateRequest,
+  uploadDeliveryProof
+);
+
+router.post(
+  "/:id/fail",
+  authorize("PARTNER"),
+  failDeliveryValidation,
+  validateRequest,
+  failDelivery
 );
 
 /* ---------------- Shared ---------------- */

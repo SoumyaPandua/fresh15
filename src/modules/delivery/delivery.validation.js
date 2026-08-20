@@ -41,3 +41,38 @@ export const updateDeliveryStatusValidation = [
     ])
     .withMessage("Invalid delivery status"),
 ];
+
+export const verifyDeliveryOtpValidation = [
+  body("otp")
+    .trim()
+    .notEmpty()
+    .withMessage("Delivery OTP is required")
+    .matches(/^\d{6}$/)
+    .withMessage("Delivery OTP must be 6 digits"),
+];
+
+export const uploadDeliveryProofValidation = [
+  body("type")
+    .isIn(["PHOTO", "SIGNATURE"])
+    .withMessage("Proof type must be PHOTO or SIGNATURE"),
+];
+
+export const failDeliveryValidation = [
+  body("reason")
+    .isIn([
+      "CUSTOMER_UNAVAILABLE",
+      "CUSTOMER_REFUSED",
+      "WRONG_ADDRESS",
+      "PHONE_UNREACHABLE",
+      "PAYMENT_ISSUE",
+      "DAMAGED_ORDER",
+      "SAFETY_ISSUE",
+      "OTHER",
+    ])
+    .withMessage("Invalid failed delivery reason"),
+  body("note")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Failure note cannot exceed 500 characters"),
+];

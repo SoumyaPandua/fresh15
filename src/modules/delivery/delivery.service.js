@@ -4,6 +4,7 @@ import User from "../user/user.model.js";
 import Profile from "../profile/profile.model.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
 import AppError from "../../utils/AppError.js";
+import { ensureDeliveryOtpService, isDeliveryProofRequired } from "./delivery-proof.service.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
 import {
@@ -248,6 +249,12 @@ export const createDeliveryService = async (
       notes: body.notes || "",
       createdBy: userId,
     });
+
+  // Generate the door OTP as soon as a delivery exists for COD/high-value orders.
+  // The OTP is hidden from admin/rider queries and exposed only to the customer.
+  if (isDeliveryProofRequired(order)) {
+    await ensureDeliveryOtpService(delivery._id);
+  }
 
   emitDeliveryUpdated(
     delivery._id,
@@ -569,6 +576,26 @@ export const updateDeliveryStatusService =
 
     const now = new Date();
 
+    if (nextStatus === "DELIVERED") {
+      if (isDeliveryProofRequired(order)) {
+        if (!delivery.deliveryOtpVerified) {
+          throw new AppError(
+            409,
+            "DELIVERY_OTP_REQUIRED",
+            "Delivery OTP must be verified before completing this delivery"
+          );
+        }
+
+        if (!delivery.customerConfirmedAt) {
+          throw new AppError(
+            409,
+            "CUSTOMER_CONFIRMATION_REQUIRED",
+            "Customer confirmation is required before completing this delivery"
+          );
+        }
+      }
+    }
+
     switch (nextStatus) {
       case "ACCEPTED":
         if (
@@ -889,7 +916,7 @@ export const getDeliveryRouteService = async (
   }
 
   const routeOrder = delivery.orderId;
-  if (delivery.status === "DELIVERED" || routeOrder?.orderStatus === "DELIVERED" || delivery.status === "CANCELLED" || delivery.status === "REJECTED") {
+  if (delivery.status === "DELIVERED" || routeOrder?.orderStatus === "DELIVERED" || delivery.status === "CANCELLED" || delivery.status === "REJECTED" || delivery.status === "FAILED") {
     throw new AppError(410, "DELIVERY_TRACKING_ENDED", "Live delivery tracking is no longer available for this order");
   }
 

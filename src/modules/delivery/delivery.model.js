@@ -66,6 +66,7 @@ const deliverySchema = new mongoose.Schema(
         "OUT_FOR_DELIVERY",
         "DELIVERED",
         "REJECTED",
+        "FAILED",
         "CANCELLED",
       ],
       default: "PENDING",
@@ -121,14 +122,78 @@ const deliverySchema = new mongoose.Schema(
       default: null,
     },
 
+    // Plain OTP is hidden from normal queries and only returned through the
+    // customer-owned OTP endpoint. Never expose it to riders/admins.
     deliveryOtp: {
       type: String,
       default: null,
+      select: false,
+    },
+
+    deliveryOtpExpiresAt: {
+      type: Date,
+      default: null,
+    },
+
+    deliveryOtpAttempts: {
+      type: Number,
+      default: 0,
+      min: 0,
     },
 
     deliveryOtpVerified: {
       type: Boolean,
       default: false,
+    },
+
+    deliveryOtpVerifiedAt: {
+      type: Date,
+      default: null,
+    },
+
+    customerConfirmedAt: {
+      type: Date,
+      default: null,
+    },
+
+    proofOfDelivery: {
+      photoUrl: {
+        type: String,
+        default: null,
+      },
+      signatureUrl: {
+        type: String,
+        default: null,
+      },
+      uploadedAt: {
+        type: Date,
+        default: null,
+      },
+      uploadedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
+    },
+
+    failedDelivery: {
+      reason: {
+        type: String,
+        default: null,
+      },
+      note: {
+        type: String,
+        default: "",
+      },
+      failedAt: {
+        type: Date,
+        default: null,
+      },
+      failedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User",
+        default: null,
+      },
     },
 
     deliveryCharge: {

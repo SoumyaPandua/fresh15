@@ -14,6 +14,13 @@ import {
   getDeliveryRouteService,
 } from "./delivery.service.js";
 import { collectCodPaymentService } from "./cod-payment.service.js";
+import {
+  getCustomerDeliveryOtpService,
+  verifyDeliveryOtpService,
+  customerConfirmDeliveryService,
+  uploadDeliveryProofService,
+  failDeliveryService,
+} from "./delivery-proof.service.js";
 
 export const getAllDeliveries = async (req, res) => {
   try {
@@ -93,6 +100,64 @@ export const collectCodPayment = async (req, res) => {
   try {
     const data = await collectCodPaymentService(req.params.id, req.user._id, req.user.role);
     return sendResponse(res, 200, true, "COD payment collected successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+
+
+export const getCustomerDeliveryOtp = async (req, res) => {
+  try {
+    const data = await getCustomerDeliveryOtpService(req.params.orderId, req.user._id);
+    return sendResponse(res, 200, true, "Delivery OTP fetched successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const verifyDeliveryOtp = async (req, res) => {
+  try {
+    const data = await verifyDeliveryOtpService(req.params.id, req.user._id, req.body.otp);
+    return sendResponse(res, 200, true, "Delivery OTP verified successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const customerConfirmDelivery = async (req, res) => {
+  try {
+    const data = await customerConfirmDeliveryService(req.params.id, req.user._id);
+    return sendResponse(res, 200, true, "Customer confirmed delivery", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const uploadDeliveryProof = async (req, res) => {
+  try {
+    const data = await uploadDeliveryProofService(
+      req.params.id,
+      req.user._id,
+      req.user.role,
+      req.body.type,
+      req.file?.buffer
+    );
+    return sendResponse(res, 200, true, "Delivery proof uploaded successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const failDelivery = async (req, res) => {
+  try {
+    const data = await failDeliveryService(
+      req.params.id,
+      req.user._id,
+      req.body.reason,
+      req.body.note
+    );
+    return sendResponse(res, 200, true, "Delivery marked as failed", data);
   } catch (error) {
     return sendError(res, error);
   }
