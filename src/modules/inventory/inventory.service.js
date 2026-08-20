@@ -1,5 +1,24 @@
+
 import Inventory from "./inventory.model.js";
 import Product from "../product/product.model.js";
+
+const populateInventory = (id) =>
+  Inventory.findById(id).populate({
+    path: "productId",
+    select: "name slug sku images sellingPrice categoryId isActive stock",
+    populate: {
+      path: "categoryId",
+      select: "name",
+    },
+  });
+
+const syncProductStock = async (productId, currentStock) => {
+  await Product.findByIdAndUpdate(productId, {
+    $set: {
+      stock: Number(currentStock),
+    },
+  });
+};
 
 export const getAllInventoryService = async (query) => {
   const filter = {};
@@ -12,7 +31,7 @@ export const getAllInventoryService = async (query) => {
     .populate({
       path: "productId",
       select:
-        "name slug sku images sellingPrice categoryId isActive",
+        "name slug sku images sellingPrice categoryId isActive stock",
       populate: {
         path: "categoryId",
         select: "name",
@@ -33,7 +52,7 @@ export const getInventoryByProductService = async (
   }).populate({
     path: "productId",
     select:
-      "name slug sku images sellingPrice categoryId isActive",
+      "name slug sku images sellingPrice categoryId isActive stock",
     populate: {
       path: "categoryId",
       select: "name",
@@ -70,30 +89,31 @@ export const createInventoryService = async (
     );
   }
 
+  const currentStock = Number(body.currentStock);
+  const reservedStock = Number(body.reservedStock || 0);
+
+  if (reservedStock > currentStock) {
+    throw new Error(
+      "Reserved stock cannot be greater than current stock"
+    );
+  }
+
   const inventory = await Inventory.create({
     productId: body.productId,
-    currentStock: body.currentStock,
-    reservedStock: body.reservedStock || 0,
+    currentStock,
+    reservedStock,
     lowStockThreshold:
-      body.lowStockThreshold || 10,
+      body.lowStockThreshold !== undefined
+        ? Number(body.lowStockThreshold)
+        : 10,
     lastRestockedAt:
-      Number(body.currentStock) > 0
-        ? new Date()
-        : null,
+      currentStock > 0 ? new Date() : null,
     createdBy: userId,
   });
 
-  return await Inventory.findById(
-    inventory._id
-  ).populate({
-    path: "productId",
-    select:
-      "name sku images sellingPrice categoryId",
-    populate: {
-      path: "categoryId",
-      select: "name",
-    },
-  });
+  await syncProductStock(product._id, currentStock);
+
+  return await populateInventory(inventory._id);
 };
 
 export const updateInventoryService = async (
@@ -107,24 +127,58 @@ export const updateInventoryService = async (
     throw new Error("Inventory not found");
   }
 
-  const previousStock = inventory.currentStock;
+  const previousStock = Number(inventory.currentStock);
 
   if (body.currentStock !== undefined) {
-    inventory.currentStock = body.currentStock;
+    const nextStock = Number(body.currentStock);
+
+    if (!Number.isInteger(nextStock) || nextStock < 0) {
+      throw new Error(
+        "Current stock must be a non-negative integer"
+      );
+    }
+
+    inventory.currentStock = nextStock;
   }
 
+  // Reserved stock is system-managed by order reservation/finalization.
+  // Keep this field readable but do not allow an admin stock edit to
+  // accidentally corrupt active reservations.
   if (body.reservedStock !== undefined) {
-    inventory.reservedStock = body.reservedStock;
+    const nextReserved = Number(body.reservedStock);
+
+    if (
+      !Number.isInteger(nextReserved) ||
+      nextReserved < 0
+    ) {
+      throw new Error(
+        "Reserved stock must be a non-negative integer"
+      );
+    }
+
+    if (nextReserved > Number(inventory.currentStock)) {
+      throw new Error(
+        "Reserved stock cannot be greater than current stock"
+      );
+    }
+
+    inventory.reservedStock = nextReserved;
   }
 
   if (body.lowStockThreshold !== undefined) {
-    inventory.lowStockThreshold =
-      body.lowStockThreshold;
+    const threshold = Number(body.lowStockThreshold);
+
+    if (!Number.isInteger(threshold) || threshold < 0) {
+      throw new Error(
+        "Low stock threshold must be a non-negative integer"
+      );
+    }
+
+    inventory.lowStockThreshold = threshold;
   }
 
   if (
-    body.currentStock !== undefined &&
-    Number(body.currentStock) > Number(previousStock)
+    Number(inventory.currentStock) > previousStock
   ) {
     inventory.lastRestockedAt = new Date();
   }
@@ -133,15 +187,12 @@ export const updateInventoryService = async (
 
   await inventory.save();
 
-  return await Inventory.findById(inventory._id).populate({
-    path: "productId",
-    select:
-      "name sku images sellingPrice categoryId",
-    populate: {
-      path: "categoryId",
-      select: "name",
-    },
-  });
+  await syncProductStock(
+    inventory.productId,
+    inventory.currentStock
+  );
+
+  return await populateInventory(inventory._id);
 };
 
 export const updateInventoryStockService = async (
@@ -155,11 +206,25 @@ export const updateInventoryStockService = async (
     throw new Error("Inventory not found");
   }
 
-  const previousStock = inventory.currentStock;
+  const nextStock = Number(currentStock);
 
-  inventory.currentStock = currentStock;
+  if (!Number.isInteger(nextStock) || nextStock < 0) {
+    throw new Error(
+      "Current stock must be a non-negative integer"
+    );
+  }
 
-  if (Number(currentStock) > Number(previousStock)) {
+  if (nextStock < Number(inventory.reservedStock)) {
+    throw new Error(
+      `Stock cannot be reduced below reserved quantity (${inventory.reservedStock})`
+    );
+  }
+
+  const previousStock = Number(inventory.currentStock);
+
+  inventory.currentStock = nextStock;
+
+  if (nextStock > previousStock) {
     inventory.lastRestockedAt = new Date();
   }
 
@@ -167,15 +232,12 @@ export const updateInventoryStockService = async (
 
   await inventory.save();
 
-  return await Inventory.findById(inventory._id).populate({
-    path: "productId",
-    select:
-      "name sku images sellingPrice categoryId",
-    populate: {
-      path: "categoryId",
-      select: "name",
-    },
-  });
+  await syncProductStock(
+    inventory.productId,
+    nextStock
+  );
+
+  return await populateInventory(inventory._id);
 };
 
 export const deleteInventoryService = async (

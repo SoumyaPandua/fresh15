@@ -1,3 +1,4 @@
+
 import slugify from "slugify";
 
 import Product from "./product.model.js";
@@ -38,7 +39,14 @@ export const getAllProductsService = async (query) => {
     Product.countDocuments(filter),
   ]);
 
-  return { items: products, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
+  return {
+    items: products,
+    pagination: buildPagination({
+      page: pagination.page,
+      limit: pagination.limit,
+      total,
+    }),
+  };
 };
 
 export const getProductByIdService = async (id) => {
@@ -96,6 +104,7 @@ export const createProductService = async (
     throw new Error("Selling price cannot be greater than MRP");
   }
 
+  const initialStock = Math.max(0, Number(body.stock) || 0);
   const images = [];
 
   if (files && files.length > 0) {
@@ -120,7 +129,7 @@ export const createProductService = async (
     sku: body.sku.toUpperCase(),
     mrp: body.mrp,
     sellingPrice: body.sellingPrice,
-    stock: body.stock || 0,
+    stock: initialStock,
     tags: body.tags || [],
     isVeg: body.isVeg ?? true,
     isFeatured: body.isFeatured ?? false,
@@ -129,11 +138,11 @@ export const createProductService = async (
 
   await Inventory.create({
     productId: product._id,
-    currentStock: Number(body.stock) || 0,
+    currentStock: initialStock,
     reservedStock: 0,
     lowStockThreshold: 10,
     lastRestockedAt:
-      Number(body.stock) > 0 ? new Date() : null,
+      initialStock > 0 ? new Date() : null,
     createdBy: userId,
   });
 
@@ -255,10 +264,6 @@ export const updateProductService = async (
     product.sellingPrice = body.sellingPrice;
   }
 
-  if (body.stock !== undefined) {
-    product.stock = body.stock;
-  }
-
   if (body.tags !== undefined) {
     product.tags = body.tags;
   }
@@ -273,6 +278,38 @@ export const updateProductService = async (
 
   if (body.isActive !== undefined) {
     product.isActive = body.isActive;
+  }
+
+  if (body.stock !== undefined) {
+    const nextStock = Number(body.stock);
+
+    if (!Number.isInteger(nextStock) || nextStock < 0) {
+      throw new Error("Stock must be a non-negative integer");
+    }
+
+    const inventory = await Inventory.findOne({
+      productId: product._id,
+    });
+
+    if (inventory) {
+      if (nextStock < Number(inventory.reservedStock)) {
+        throw new Error(
+          `Stock cannot be reduced below reserved quantity (${inventory.reservedStock})`
+        );
+      }
+
+      const previousStock = Number(inventory.currentStock);
+      inventory.currentStock = nextStock;
+
+      if (nextStock > previousStock) {
+        inventory.lastRestockedAt = new Date();
+      }
+
+      inventory.updatedBy = userId;
+      await inventory.save();
+    }
+
+    product.stock = nextStock;
   }
 
   product.updatedBy = userId;
