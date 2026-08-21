@@ -51,3 +51,31 @@ export const updateOrderStatusValidation = [
     ])
     .withMessage("Invalid order status"),
 ];
+
+export const reorderValidation = [
+  body("mode")
+    .notEmpty()
+    .withMessage("Reorder mode is required")
+    .isIn(["ALL", "SELECTED"])
+    .withMessage("Reorder mode must be ALL or SELECTED"),
+
+  body("sourceOrderId")
+    .optional({ nullable: true })
+    .isMongoId()
+    .withMessage("Invalid source order"),
+
+  body("items")
+    .optional({ nullable: true })
+    .isArray({ max: 40 })
+    .withMessage("Reorder items must be an array with at most 40 items"),
+
+  body("items.*.productId")
+    .optional()
+    .isMongoId()
+    .withMessage("Invalid product in reorder items"),
+
+  body("items.*.quantity")
+    .optional()
+    .isInt({ min: 1, max: 50 })
+    .withMessage("Reorder quantity must be between 1 and 50"),
+];

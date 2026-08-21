@@ -10,10 +10,27 @@ import {
   adminArchiveOrderService,
 } from "./order.service.js";
 import { reconcilePendingOnlinePaymentService } from "../payment/payment.service.js";
+import { getReorderListService, reorderToCartService } from "./reorder.service.js";
 
 export const getMyOrders = async (req, res) => {
   try { return sendResponse(res, 200, true, "Orders fetched successfully", await getMyOrdersService(req.user._id, req.query)); }
   catch (error) { return sendError(res, error); }
+};
+
+export const getReorderList = async (req, res) => {
+  try {
+    return sendResponse(res, 200, true, "Reorder list fetched successfully", await getReorderListService(req.user._id, req.query));
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+export const reorderToCart = async (req, res) => {
+  try {
+    return sendResponse(res, 200, true, "Items added to cart", await reorderToCartService(req.user._id, req.body));
+  } catch (error) {
+    return sendError(res, error);
+  }
 };
 
 export const getOrderById = async (req, res) => {
