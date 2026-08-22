@@ -48,6 +48,7 @@ const notificationSchema = new mongoose.Schema(
 
         "BACK_IN_STOCK",
         "PRICE_DROP",
+        "LOYALTY_REWARD",
 
         "PROMOTIONAL",
         "GENERAL",

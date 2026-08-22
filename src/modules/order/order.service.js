@@ -16,6 +16,7 @@ import AppError from "../../utils/AppError.js";
 import { writeAuditLog } from "../audit/audit.service.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
 import Setting from "../setting/setting.model.js";
+import { calculateRedemptionService, refundOrderRedemptionService, reserveOrderRedemptionService, rewardDeliveredOrderService } from "../loyalty/loyalty.service.js";
 import {
   reserveDeliverySlotService,
   releaseReservedDeliverySlotService,
@@ -354,8 +355,11 @@ export const createOrderService = async (userId, body) => {
     const deliveryCharge =
       subtotal >= freeDeliveryAbove ? 0 : configuredDeliveryCharge;
     const tax = 0;
+    const loyaltyPreview = await calculateRedemptionService(userId, Math.max(0, subtotal - discount), body.loyaltyPoints || 0);
+    const loyaltyPointsRedeemed = loyaltyPreview.pointsToRedeem;
+    const loyaltyDiscount = loyaltyPreview.discountRupees;
     const grandTotal = Number(
-      (subtotal + deliveryCharge + tax - discount).toFixed(2)
+      Math.max(0, subtotal + deliveryCharge + tax - discount - loyaltyDiscount).toFixed(2)
     );
     const orderNumber = `ORD-${Date.now()
       .toString()
@@ -385,6 +389,8 @@ export const createOrderService = async (userId, body) => {
       couponId,
       couponCode,
       couponDiscount: discount,
+      loyaltyPointsRedeemed,
+      loyaltyDiscount,
       tax,
       grandTotal,
       paymentMethod: body.paymentMethod,
@@ -401,6 +407,10 @@ export const createOrderService = async (userId, body) => {
     });
 
     createdOrder = order;
+
+    if (loyaltyPointsRedeemed > 0) {
+      await reserveOrderRedemptionService(userId, order._id, loyaltyPointsRedeemed);
+    }
 
     if (couponId) {
       await markCouponUsedService(couponId);
@@ -447,6 +457,7 @@ export const createOrderService = async (userId, body) => {
   } catch (error) {
     if (createdOrder) {
       try {
+        await refundOrderRedemptionService(createdOrder);
         if (createdOrder.couponUsageRecorded && createdOrder.couponId) {
           await releaseCouponUsageService(createdOrder.couponId);
         }
@@ -539,10 +550,12 @@ export const updateOrderStatusService = async (
 
   if (orderStatus === "DELIVERED") {
     await finalizeOrderStockService(order);
+    try { await rewardDeliveredOrderService(order); } catch (e) { console.error("Loyalty reward processing failed:", e.message); }
   }
 
   if (orderStatus === "CANCELLED") {
     await releaseOrderStockService(order);
+    await refundOrderRedemptionService(order);
 
     if (order.deliverySlotId && order.deliveryDateKey) {
       await releaseReservedDeliverySlotService(
@@ -603,6 +616,7 @@ export const cancelMyOrderService = async (id, userId) => {
   await order.save();
 
   await releaseOrderStockService(order);
+  await refundOrderRedemptionService(order);
 
   if (order.deliverySlotId && order.deliveryDateKey) {
     await releaseReservedDeliverySlotService(

@@ -22,6 +22,7 @@ import settingRoutes from "../modules/setting/setting.routes.js";
 import deliverySlotRoutes from "../modules/deliverySlot/deliverySlot.routes.js";
 import productAlertRoutes from "../modules/productAlert/productAlert.routes.js";
 import groceryListRoutes from "../modules/groceryList/groceryList.routes.js";
+import loyaltyRoutes from "../modules/loyalty/loyalty.routes.js";
 
 const router = Router();
 
@@ -52,5 +53,6 @@ router.use("/setting", settingRoutes);
 router.use("/delivery-slots", deliverySlotRoutes);
 router.use("/product-alerts", productAlertRoutes);
 router.use("/grocery-lists", groceryListRoutes);
+router.use("/loyalty", loyaltyRoutes);
 
 export default router;

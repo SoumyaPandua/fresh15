@@ -4,6 +4,7 @@ import User from "../user/user.model.js";
 import Profile from "../profile/profile.model.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
 import AppError from "../../utils/AppError.js";
+import { rewardDeliveredOrderService } from "../loyalty/loyalty.service.js";
 import { ensureDeliveryOtpService, isDeliveryProofRequired } from "./delivery-proof.service.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
@@ -780,6 +781,8 @@ export const updateDeliveryStatusService =
       if (delivery.riderId) {
         await User.findByIdAndUpdate(delivery.riderId, { $set: { currentLocation: null } });
       }
+
+      try { await rewardDeliveredOrderService(order); } catch (e) { console.error("Loyalty reward processing failed:", e.message); }
 
       await releaseRider(
         delivery.riderId,

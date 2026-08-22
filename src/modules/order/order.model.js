@@ -81,6 +81,8 @@ const orderSchema = new mongoose.Schema(
     couponId: { type: mongoose.Schema.Types.ObjectId, ref: "Coupon", default: null },
     couponCode: { type: String, default: "" },
     couponDiscount: { type: Number, default: 0, min: 0 },
+    loyaltyPointsRedeemed: { type: Number, default: 0, min: 0 },
+    loyaltyDiscount: { type: Number, default: 0, min: 0 },
     tax: { type: Number, default: 0, min: 0 },
     grandTotal: { type: Number, required: true, min: 0 },
     paymentMethod: { type: String, enum: ["COD", "ONLINE"], required: true },

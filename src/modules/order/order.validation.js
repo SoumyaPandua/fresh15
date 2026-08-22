@@ -30,6 +30,11 @@ export const createOrderValidation = [
     .isLength({ max: 50 })
     .withMessage("Invalid coupon"),
 
+  body("loyaltyPoints")
+    .optional()
+    .isInt({ min: 0, max: 1000000 })
+    .withMessage("Invalid loyalty points"),
+
   body("notes")
     .optional()
     .isLength({ max: 500 })
