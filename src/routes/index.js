@@ -20,6 +20,7 @@ import dashboardRoutes from "../modules/dashboard/dashboard.routes.js";
 import supportRoutes from "../modules/support/support.routes.js";
 import settingRoutes from "../modules/setting/setting.routes.js";
 import deliverySlotRoutes from "../modules/deliverySlot/deliverySlot.routes.js";
+import productAlertRoutes from "../modules/productAlert/productAlert.routes.js";
 
 const router = Router();
 
@@ -48,5 +49,6 @@ router.use("/dashboard", dashboardRoutes);
 router.use("/support", supportRoutes);
 router.use("/setting", settingRoutes);
 router.use("/delivery-slots", deliverySlotRoutes);
+router.use("/product-alerts", productAlertRoutes);
 
 export default router;

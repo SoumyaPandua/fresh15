@@ -10,6 +10,7 @@ import {
   releaseCouponUsageService,
 } from "../coupon/coupon.service.js";
 import { sendNotificationService } from "../notification/notification.service.js";
+import { processBackInStockAlertService } from "../productAlert/productAlert.service.js";
 import { emitNewOrder, emitOrderUpdated } from "../../socket/emitters.js";
 import AppError from "../../utils/AppError.js";
 import { writeAuditLog } from "../audit/audit.service.js";
@@ -70,7 +71,11 @@ const reserveInventoryItem = async (productId, quantity) => {
 };
 
 const releaseInventoryItem = async (productId, quantity) => {
-  await Inventory.findOneAndUpdate(
+  const before = await Inventory.findOne({ productId }).select(
+    "availableStock"
+  );
+
+  const inventory = await Inventory.findOneAndUpdate(
     { productId, reservedStock: { $gte: quantity } },
     [
       { $set: { reservedStock: { $subtract: ["$reservedStock", quantity] } } },
@@ -95,6 +100,22 @@ const releaseInventoryItem = async (productId, quantity) => {
     ],
     { new: true, updatePipeline: true }
   );
+
+  if (
+    inventory &&
+    Number(before?.availableStock ?? 0) <= 0 &&
+    Number(inventory.availableStock ?? 0) > 0
+  ) {
+    try {
+      await processBackInStockAlertService({
+        productId,
+        previousAvailableStock: Number(before?.availableStock ?? 0),
+        currentAvailableStock: Number(inventory.availableStock),
+      });
+    } catch (alertError) {
+      console.error("Back-in-stock alert processing failed:", alertError.message);
+    }
+  }
 };
 
 const finalizeInventoryItem = async (productId, quantity) => {

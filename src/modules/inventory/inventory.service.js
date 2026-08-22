@@ -1,6 +1,7 @@
 
 import Inventory from "./inventory.model.js";
 import Product from "../product/product.model.js";
+import { processBackInStockAlertService } from "../productAlert/productAlert.service.js";
 
 const populateInventory = (id) =>
   Inventory.findById(id).populate({
@@ -128,6 +129,7 @@ export const updateInventoryService = async (
   }
 
   const previousStock = Number(inventory.currentStock);
+  const previousAvailableStock = Number(inventory.availableStock);
 
   if (body.currentStock !== undefined) {
     const nextStock = Number(body.currentStock);
@@ -192,6 +194,16 @@ export const updateInventoryService = async (
     inventory.currentStock
   );
 
+  try {
+    await processBackInStockAlertService({
+      productId: inventory.productId,
+      previousAvailableStock,
+      currentAvailableStock: Number(inventory.availableStock),
+    });
+  } catch (alertError) {
+    console.error("Back-in-stock alert processing failed:", alertError.message);
+  }
+
   return await populateInventory(inventory._id);
 };
 
@@ -221,6 +233,7 @@ export const updateInventoryStockService = async (
   }
 
   const previousStock = Number(inventory.currentStock);
+  const previousAvailableStock = Number(inventory.availableStock);
 
   inventory.currentStock = nextStock;
 
@@ -236,6 +249,16 @@ export const updateInventoryStockService = async (
     inventory.productId,
     nextStock
   );
+
+  try {
+    await processBackInStockAlertService({
+      productId: inventory.productId,
+      previousAvailableStock,
+      currentAvailableStock: Number(inventory.availableStock),
+    });
+  } catch (alertError) {
+    console.error("Back-in-stock alert processing failed:", alertError.message);
+  }
 
   return await populateInventory(inventory._id);
 };

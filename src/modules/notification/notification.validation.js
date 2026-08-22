@@ -51,6 +51,9 @@ export const createNotificationValidation = [
 
       "REVIEW_CREATED",
 
+      "BACK_IN_STOCK",
+      "PRICE_DROP",
+
       "PROMOTIONAL",
       "GENERAL",
     ])

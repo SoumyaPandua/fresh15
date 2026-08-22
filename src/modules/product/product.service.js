@@ -6,6 +6,7 @@ import Category from "../category/category.model.js";
 import Inventory from "../inventory/inventory.model.js";
 import { uploadImage } from "../../config/cloudinary.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
+import { processBackInStockAlertService, processPriceDropAlertService } from "../productAlert/productAlert.service.js";
 
 export const getAllProductsService = async (query) => {
   const filter = {
@@ -167,6 +168,9 @@ export const updateProductService = async (
     throw new Error("Product not found");
   }
 
+  const previousPrice = Number(product.sellingPrice);
+  const previousStock = Number(product.stock);
+
   if (body.categoryId) {
     const category = await Category.findOne({
       _id: body.categoryId,
@@ -315,6 +319,36 @@ export const updateProductService = async (
   product.updatedBy = userId;
 
   await product.save();
+
+  try {
+    await processPriceDropAlertService({
+      productId: product._id,
+      previousPrice,
+      currentPrice: Number(product.sellingPrice),
+    });
+
+    if (body.stock !== undefined) {
+      const inventory = await Inventory.findOne({
+        productId: product._id,
+      }).select("availableStock");
+
+      if (
+        Number(inventory?.availableStock ?? product.stock) > 0 &&
+        previousStock <= 0
+      ) {
+        await processBackInStockAlertService({
+          productId: product._id,
+          previousAvailableStock: previousStock,
+          currentAvailableStock: Number(
+            inventory?.availableStock ?? product.stock
+          ),
+        });
+      }
+    }
+  } catch (alertError) {
+    // Alert delivery must never make a successful catalog update fail.
+    console.error("Product alert processing failed:", alertError.message);
+  }
 
   return await Product.findById(product._id).populate(
     "categoryId",
