@@ -1,0 +1,18 @@
+import express from "express";
+import authMiddleware from "../../middleware/auth.middleware.js";
+import authorize from "../../middleware/authorize.middleware.js";
+import validateRequest from "../../middleware/validateRequest.middleware.js";
+import { adminGroceryListValidation, createGroceryListValidation, groceryListIdValidation, updateGroceryListValidation } from "./groceryList.validation.js";
+import { addGroceryListToCart, createFromCart, createGroceryList, createSmartWeeklyList, deleteGroceryList, getAdminGroceryListSummary, getAdminGroceryLists, getMyGroceryLists, updateGroceryList } from "./groceryList.controller.js";
+const router = express.Router();
+router.use(authMiddleware);
+router.get("/admin/summary", authorize("ADMIN", "SUPER_ADMIN"), adminGroceryListValidation, validateRequest, getAdminGroceryListSummary);
+router.get("/admin", authorize("ADMIN", "SUPER_ADMIN"), adminGroceryListValidation, validateRequest, getAdminGroceryLists);
+router.get("/", getMyGroceryLists);
+router.post("/", createGroceryListValidation, validateRequest, createGroceryList);
+router.post("/from-cart", createFromCart);
+router.post("/smart-weekly", createSmartWeeklyList);
+router.patch("/:id", updateGroceryListValidation, validateRequest, updateGroceryList);
+router.delete("/:id", groceryListIdValidation, validateRequest, deleteGroceryList);
+router.post("/:id/add-to-cart", groceryListIdValidation, validateRequest, addGroceryListToCart);
+export default router;

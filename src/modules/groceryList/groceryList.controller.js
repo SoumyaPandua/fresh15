@@ -1,0 +1,12 @@
+import sendResponse from "../../utils/sendResponse.js";
+import { sendError } from "../../utils/errorResponse.js";
+import { addGroceryListToCartService, createGroceryListFromCartService, createGroceryListService, createSmartWeeklyListService, deleteGroceryListService, getAdminGroceryListSummaryService, getAdminGroceryListsService, getMyGroceryListsService, updateGroceryListService } from "./groceryList.service.js";
+export const getMyGroceryLists = async (req, res) => { try { return sendResponse(res, 200, true, "Grocery lists fetched successfully", await getMyGroceryListsService(req.user._id)); } catch (e) { return sendError(res, e); } };
+export const createGroceryList = async (req, res) => { try { return sendResponse(res, 201, true, "Grocery list created", await createGroceryListService(req.user._id, req.body)); } catch (e) { return sendError(res, e); } };
+export const createFromCart = async (req, res) => { try { return sendResponse(res, 201, true, "Weekly Essentials saved", await createGroceryListFromCartService(req.user._id, req.body)); } catch (e) { return sendError(res, e); } };
+export const createSmartWeeklyList = async (req, res) => { try { return sendResponse(res, 200, true, "Smart Weekly Essentials ready", await createSmartWeeklyListService(req.user._id)); } catch (e) { return sendError(res, e); } };
+export const updateGroceryList = async (req, res) => { try { return sendResponse(res, 200, true, "Grocery list updated", await updateGroceryListService(req.user._id, req.params.id, req.body)); } catch (e) { return sendError(res, e); } };
+export const deleteGroceryList = async (req, res) => { try { await deleteGroceryListService(req.user._id, req.params.id); return sendResponse(res, 200, true, "Grocery list deleted", null); } catch (e) { return sendError(res, e); } };
+export const addGroceryListToCart = async (req, res) => { try { return sendResponse(res, 200, true, "Weekly basket added to cart", await addGroceryListToCartService(req.user._id, req.params.id)); } catch (e) { return sendError(res, e); } };
+export const getAdminGroceryListSummary = async (req, res) => { try { return sendResponse(res, 200, true, "Grocery list summary fetched", await getAdminGroceryListSummaryService(req.query)); } catch (e) { return sendError(res, e); } };
+export const getAdminGroceryLists = async (req, res) => { try { return sendResponse(res, 200, true, "Grocery lists fetched", await getAdminGroceryListsService(req.query)); } catch (e) { return sendError(res, e); } };
