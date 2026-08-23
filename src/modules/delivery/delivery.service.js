@@ -6,6 +6,7 @@ import { parsePagination, buildPagination } from "../../utils/pagination.js";
 import AppError from "../../utils/AppError.js";
 import { rewardDeliveredOrderService } from "../loyalty/loyalty.service.js";
 import { ensureDeliveryOtpService, isDeliveryProofRequired } from "./delivery-proof.service.js";
+import { recordDeliveredOrderEarningsService } from "../partnerOps/partnerOps.service.js";
 
 import { sendNotificationService } from "../notification/notification.service.js";
 import {
@@ -20,6 +21,8 @@ const ACTIVE_DELIVERY_STATUSES = [
   "PICKED_UP",
   "OUT_FOR_DELIVERY",
 ];
+
+export const PARTNER_ACCEPTANCE_WINDOW_MS = 90 * 1000;
 
 const getPopulatedDelivery = async (id) => {
   return await Delivery.findById(id)
@@ -115,6 +118,84 @@ const releaseRider = async (
   await profile.save();
 };
 
+
+const expireAssignedDelivery = async (delivery, now = new Date()) => {
+  if (
+    !delivery ||
+    delivery.status !== "ASSIGNED" ||
+    !delivery.acceptanceDeadlineAt ||
+    new Date(delivery.acceptanceDeadlineAt) > now
+  ) {
+    return false;
+  }
+
+  const riderId = delivery.riderId;
+  const order = await Order.findById(delivery.orderId);
+
+  delivery.status = "EXPIRED";
+  delivery.rejectedAt = now;
+  delivery.riderStatus = "OFFLINE";
+  // Keep the previous riderId for audit/history. A later admin assignment
+  // replaces it with the new riderId.
+  delivery.acceptanceDeadlineAt = null;
+  delivery.updatedBy = riderId || null;
+  await delivery.save();
+
+  if (riderId) {
+    const profile = await Profile.findOne({ userId: riderId });
+    if (profile) {
+      profile.currentDeliveryId = null;
+      profile.deliveryStatus = profile.isOnline
+        ? (profile.isPaused ? "PAUSED" : "AVAILABLE")
+        : "OFFLINE";
+      await profile.save();
+    }
+  }
+
+  if (order) {
+    order.orderStatus = "CONFIRMED";
+    order.deliveryPartnerId = null;
+    order.updatedBy = riderId || null;
+    await order.save();
+
+    emitOrderUpdated(order._id, {
+      orderId: order._id,
+      customerId: order.userId,
+      deliveryId: delivery._id,
+      deliveryStatus: "EXPIRED",
+      orderStatus: order.orderStatus,
+      updatedAt: now,
+    });
+  }
+
+  emitDeliveryUpdated(delivery._id, {
+    deliveryId: delivery._id,
+    orderId: delivery.orderId,
+    riderId,
+    deliveryStatus: "EXPIRED",
+    acceptanceDeadlineAt: null,
+    updatedAt: now,
+  });
+
+  return true;
+};
+
+const expireOverdueAssignedDeliveries = async (riderId) => {
+  const overdue = await Delivery.find({
+    riderId,
+    status: "ASSIGNED",
+    acceptanceDeadlineAt: { $lte: new Date() },
+  });
+
+  for (const delivery of overdue) {
+    try {
+      await expireAssignedDelivery(delivery);
+    } catch (error) {
+      console.error("Delivery acceptance expiry processing failed:", error.message);
+    }
+  }
+};
+
 export const getAllDeliveriesService = async (query = {}) => {
   const pagination = parsePagination(query);
   const base = Delivery.find()
@@ -158,6 +239,7 @@ export const getDeliveryByIdService = async (
 };
 
 export const getMyDeliveriesService = async (riderId, query = {}) => {
+  await expireOverdueAssignedDeliveries(riderId);
   const pagination = parsePagination(query);
   const filter = { riderId };
   const base = Delivery.find(filter)
@@ -175,6 +257,7 @@ export const getMyDeliveriesService = async (riderId, query = {}) => {
 export const getMyActiveDeliveryService = async (
   riderId
 ) => {
+  await expireOverdueAssignedDeliveries(riderId);
   return await Delivery.findOne({
     riderId,
     status: {
@@ -288,7 +371,7 @@ export const assignRiderService = async (
     throw new Error("Delivery not found");
   }
 
-  if (delivery.status !== "PENDING") {
+  if (!["PENDING", "EXPIRED"].includes(delivery.status)) {
     throw new Error(
       "Delivery is not available for assignment"
     );
@@ -380,6 +463,10 @@ export const assignRiderService = async (
   delivery.riderId = riderId;
   delivery.status = "ASSIGNED";
   delivery.assignedAt = new Date();
+  delivery.acceptanceDeadlineAt = new Date(
+    delivery.assignedAt.getTime() + PARTNER_ACCEPTANCE_WINDOW_MS
+  );
+  delivery.rejectedAt = null;
   delivery.riderStatus = "BUSY";
   delivery.currentLocation = null;
   delivery.updatedBy = userId;
@@ -409,6 +496,7 @@ export const assignRiderService = async (
     deliveryStatus: delivery.status,
     orderStatus: order.orderStatus,
     assignedAt: delivery.assignedAt,
+    acceptanceDeadlineAt: delivery.acceptanceDeadlineAt,
     destination:
       order.addressId
         ? {
@@ -577,6 +665,20 @@ export const updateDeliveryStatusService =
 
     const now = new Date();
 
+    if (
+      nextStatus === "ACCEPTED" &&
+      delivery.status === "ASSIGNED" &&
+      delivery.acceptanceDeadlineAt &&
+      new Date(delivery.acceptanceDeadlineAt) <= now
+    ) {
+      await expireAssignedDelivery(delivery, now);
+      throw new AppError(
+        409,
+        "DELIVERY_ACCEPTANCE_EXPIRED",
+        "The acceptance window has expired. The delivery has been released for reassignment."
+      );
+    }
+
     if (nextStatus === "DELIVERED") {
       if (isDeliveryProofRequired(order)) {
         if (!delivery.deliveryOtpVerified) {
@@ -615,6 +717,7 @@ export const updateDeliveryStatusService =
         }
 
         delivery.acceptedAt = now;
+        delivery.acceptanceDeadlineAt = null;
         delivery.riderStatus = "BUSY";
 
         break;
@@ -697,6 +800,7 @@ export const updateDeliveryStatusService =
         delivery.riderStatus =
           "OFFLINE";
         delivery.assignedAt = null;
+        delivery.acceptanceDeadlineAt = null;
         delivery.updatedBy = userId;
 
         await delivery.save();
@@ -793,6 +897,14 @@ export const updateDeliveryStatusService =
             delivery.earning,
         }
       );
+
+      try {
+        await recordDeliveredOrderEarningsService(delivery);
+      } catch (error) {
+        // Earnings are ledgered independently so a transient ledger failure
+        // never prevents the customer order from being marked delivered.
+        console.error("Partner earnings ledger failed:", error.message);
+      }
     }
 
     if (

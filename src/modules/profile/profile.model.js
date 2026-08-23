@@ -85,7 +85,7 @@ const profileSchema = new mongoose.Schema(
 
     deliveryStatus: {
       type: String,
-      enum: ["OFFLINE", "AVAILABLE", "BUSY"],
+      enum: ["OFFLINE", "AVAILABLE", "BUSY", "PAUSED"],
       default: "OFFLINE",
     },
 
@@ -93,6 +93,22 @@ const profileSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "Delivery",
       default: null,
+    },
+
+    isPaused: {
+      type: Boolean,
+      default: false,
+    },
+
+    pauseUntil: {
+      type: Date,
+      default: null,
+    },
+
+    pauseReason: {
+      type: String,
+      default: "",
+      maxlength: 200,
     },
 
     totalDeliveries: {

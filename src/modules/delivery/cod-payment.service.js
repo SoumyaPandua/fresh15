@@ -5,6 +5,7 @@ import { finalizeOrderStockService } from "../order/order.service.js";
 import { sendNotificationService } from "../notification/notification.service.js";
 import { emitOrderUpdated, emitDeliveryUpdated } from "../../socket/emitters.js";
 import AppError from "../../utils/AppError.js";
+import { recordCashCollectionService } from "../partnerOps/partnerOps.service.js";
 
 /**
  * Collect a COD payment from the customer.
@@ -114,6 +115,20 @@ export const collectCodPaymentService = async (deliveryId, riderId, userRole) =>
   };
   payment.updatedBy = riderId;
   await payment.save();
+
+  try {
+    await recordCashCollectionService({
+      partnerId: riderId,
+      deliveryId: delivery._id,
+      orderId: order._id,
+      amount,
+      createdBy: riderId,
+    });
+  } catch (error) {
+    // Do not make a successful COD payment appear failed because the
+    // reconciliation ledger is temporarily unavailable.
+    console.error("Partner cash ledger write failed:", error.message);
+  }
 
   const paymentPayload = {
     orderId: order._id,

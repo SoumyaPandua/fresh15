@@ -66,6 +66,7 @@ const deliverySchema = new mongoose.Schema(
         "OUT_FOR_DELIVERY",
         "DELIVERED",
         "REJECTED",
+        "EXPIRED",
         "FAILED",
         "CANCELLED",
       ],
@@ -85,6 +86,14 @@ const deliverySchema = new mongoose.Schema(
     assignedAt: {
       type: Date,
       default: null,
+    },
+
+    // Partner must accept an assigned delivery before this deadline.
+    // This is server-authoritative; the client countdown is only a UX aid.
+    acceptanceDeadlineAt: {
+      type: Date,
+      default: null,
+      index: true,
     },
 
     acceptedAt: {

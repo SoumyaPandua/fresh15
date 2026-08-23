@@ -196,10 +196,15 @@ export const updatePartnerAvailabilityService = async (
   profile.isOnline = isOnline;
 
   if (isOnline) {
-    profile.deliveryStatus = profile.currentDeliveryId
-      ? "BUSY"
-      : "AVAILABLE";
+    profile.deliveryStatus = profile.isPaused
+      ? "PAUSED"
+      : profile.currentDeliveryId
+        ? "BUSY"
+        : "AVAILABLE";
   } else {
+    profile.isPaused = false;
+    profile.pauseUntil = null;
+    profile.pauseReason = "";
     profile.deliveryStatus = "OFFLINE";
   }
 
