@@ -351,9 +351,16 @@ export const createOrderService = async (userId, body) => {
 
     const setting = await Setting.findOne();
     const configuredDeliveryCharge = Number(setting?.deliveryCharge ?? 40);
-    const freeDeliveryAbove = Number(setting?.freeDeliveryAbove ?? 500);
+    const freeDeliveryAbove = Number(reservedDeliverySlot.freeDeliveryAbove ?? setting?.freeDeliveryAbove ?? 500);
+    const minOrder = Number(reservedDeliverySlot.minOrder ?? 0);
+    if (subtotal < minOrder) {
+      throw new AppError(422, "MIN_ORDER_NOT_MET", `Minimum order value for this area is ₹${Math.ceil(minOrder)}`);
+    }
+    const baseDeliveryCharge = Number.isFinite(Number(reservedDeliverySlot.baseDeliveryFee))
+      ? Number(reservedDeliverySlot.baseDeliveryFee)
+      : configuredDeliveryCharge;
     const deliveryCharge =
-      subtotal >= freeDeliveryAbove ? 0 : configuredDeliveryCharge;
+      subtotal >= freeDeliveryAbove ? 0 : baseDeliveryCharge;
     const tax = 0;
     const loyaltyPreview = await calculateRedemptionService(userId, Math.max(0, subtotal - discount), body.loyaltyPoints || 0);
     const loyaltyPointsRedeemed = loyaltyPreview.pointsToRedeem;

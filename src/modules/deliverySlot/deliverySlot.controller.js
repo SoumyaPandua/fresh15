@@ -1,11 +1,25 @@
 import sendResponse from "../../utils/sendResponse.js";
 import { sendError } from "../../utils/errorResponse.js";
 import {
-  getAvailableDeliverySlotsService, createDeliverySlotService, updateDeliverySlotService,
+  getAvailableDeliverySlotsService, getServiceabilityService, createDeliverySlotService, updateDeliverySlotService,
   deleteDeliverySlotService, getAllDeliverySlotsService,
   createDeliveryZoneService, getAllDeliveryZonesService, updateDeliveryZoneService, deleteDeliveryZoneService,
   createDeliveryStoreService, getAllDeliveryStoresService, updateDeliveryStoreService, deleteDeliveryStoreService,
 } from "./deliverySlot.service.js";
+
+export const getServiceability = async (req, res) => {
+  try {
+    const data = await getServiceabilityService({
+      pincode: req.query.pincode,
+      latitude: req.query.latitude,
+      longitude: req.query.longitude,
+      subtotal: req.query.subtotal,
+    });
+    return sendResponse(res, 200, true, "Serviceability checked successfully", data);
+  } catch (e) {
+    return sendError(res, e);
+  }
+};
 
 export const getAvailableSlots = async (req, res) => {
   try { return sendResponse(res, 200, true, "Delivery slots fetched successfully", await getAvailableDeliverySlotsService(req.user._id, req.params.addressId)); }

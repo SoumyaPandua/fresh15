@@ -3,16 +3,18 @@ import authMiddleware from "../../middleware/auth.middleware.js";
 import authorize from "../../middleware/authorize.middleware.js";
 import validateRequest from "../../middleware/validateRequest.middleware.js";
 import {
-  getAvailableSlots, getSlots, createSlot, updateSlot, deleteSlot,
+  getServiceability, getAvailableSlots, getSlots, createSlot, updateSlot, deleteSlot,
   getZones, createZone, updateZone, deleteZone,
   getStores, createStore, updateStore, deleteStore,
 } from "./deliverySlot.controller.js";
 import {
-  getAvailableSlotsValidation, createSlotValidation, updateSlotValidation, idValidation,
+  serviceabilityValidation, getAvailableSlotsValidation, createSlotValidation, updateSlotValidation, idValidation,
   zoneValidation, storeValidation,
 } from "./deliverySlot.validation.js";
 
 const router = express.Router();
+router.get("/serviceability", serviceabilityValidation, validateRequest, getServiceability);
+
 router.use(authMiddleware);
 
 router.get("/available/:addressId", getAvailableSlotsValidation, validateRequest, getAvailableSlots);

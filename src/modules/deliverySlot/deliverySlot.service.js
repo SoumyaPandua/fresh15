@@ -7,6 +7,7 @@ import Delivery from "../delivery/delivery.model.js";
 import Order from "../order/order.model.js";
 import Address from "../address/address.model.js";
 import AppError from "../../utils/AppError.js";
+import Setting from "../setting/setting.model.js";
 
 const ACTIVE_ORDER_STATUSES = ["PENDING", "CONFIRMED", "PACKING", "READY_FOR_PICKUP", "OUT_FOR_DELIVERY"];
 const ACTIVE_DELIVERY_STATUSES = ["PENDING", "ASSIGNED", "ACCEPTED", "PICKED_UP", "OUT_FOR_DELIVERY"];
@@ -28,51 +29,68 @@ const haversineKm = (aLat, aLng, bLat, bLng) => {
   return r * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 };
 
-const resolveZone = async (address) => {
-  const pincode = String(address.pincode || "").trim();
-  const zone = await DeliveryZone.findOne({ active: true, pincodes: pincode });
-  if (!zone) throw new AppError(422, "DELIVERY_ZONE_UNAVAILABLE", "We do not currently deliver to this address");
-  return zone;
+
+const resolveZone = async ({ pincode, latitude, longitude }) => {
+  const normalizedPincode = String(pincode || "").trim();
+  const lat = latitude === null || latitude === undefined || latitude === "" ? NaN : Number(latitude);
+  const lng = longitude === null || longitude === undefined || longitude === "" ? NaN : Number(longitude);
+
+  if (normalizedPincode) {
+    const byPincode = await DeliveryZone.findOne({ active: true, pincodes: normalizedPincode });
+    if (byPincode) {
+      const hasZoneCoordinates = Number.isFinite(Number(byPincode.latitude)) && Number.isFinite(Number(byPincode.longitude));
+      const insideZone = !hasZoneCoordinates || !Number.isFinite(lat) || !Number.isFinite(lng)
+        || haversineKm(lat, lng, Number(byPincode.latitude), Number(byPincode.longitude)) <= Number(byPincode.serviceRadiusKm ?? 5);
+      if (insideZone) return { zone: byPincode, matchedBy: "PINCODE" };
+    }
+  }
+
+  if (Number.isFinite(lat) && Number.isFinite(lng)) {
+    const zones = await DeliveryZone.find({
+      active: true,
+      latitude: { $ne: null },
+      longitude: { $ne: null },
+    }).lean();
+    const candidates = zones
+      .map((zone) => ({ zone, distanceKm: haversineKm(lat, lng, Number(zone.latitude), Number(zone.longitude)) }))
+      .filter((x) => x.distanceKm <= Number(x.zone.serviceRadiusKm ?? 5))
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+    if (candidates[0]) return { zone: candidates[0].zone, matchedBy: "COORDINATES", distanceKm: candidates[0].distanceKm };
+  }
+
+  if (normalizedPincode || Number.isFinite(lat) || Number.isFinite(lng)) {
+    throw new AppError(422, "DELIVERY_ZONE_UNAVAILABLE", "We do not currently deliver to this location");
+  }
+  throw new AppError(400, "LOCATION_REQUIRED", "Provide a pincode or latitude and longitude");
 };
 
-const resolveStore = async (address) => {
+const resolveStore = async ({ latitude, longitude }) => {
   const stores = await DeliveryStore.find({ active: true }).sort({ createdAt: 1 });
   if (!stores.length) throw new AppError(503, "FULFILLMENT_UNAVAILABLE", "No active store is available for this delivery area");
 
-  const lat =
-    address.latitude !== null &&
-    address.latitude !== undefined &&
-    address.latitude !== ""
-      ? Number(address.latitude)
-      : NaN;
-  const lng =
-    address.longitude !== null &&
-    address.longitude !== undefined &&
-    address.longitude !== ""
-      ? Number(address.longitude)
-      : NaN;
+  const lat = latitude === null || latitude === undefined || latitude === "" ? NaN : Number(latitude);
+  const lng = longitude === null || longitude === undefined || longitude === "" ? NaN : Number(longitude);
 
-  // Pincode/zone already establishes serviceability. Coordinates are optional
-  // on customer addresses, so do not treat null as 0,0.
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return stores[0];
+    return { store: stores[0], distanceKm: null, matchedBy: "DEFAULT" };
   }
 
-  const withDistance = stores.map((store) => ({
-    store,
-    distanceKm: haversineKm(lat, lng, Number(store.latitude), Number(store.longitude)),
-  }));
+  const withDistance = stores
+    .map((store) => ({
+      store,
+      distanceKm: haversineKm(lat, lng, Number(store.latitude), Number(store.longitude)),
+    }))
+    .filter((x) => Number.isFinite(x.distanceKm));
 
-  const eligible = withDistance.filter(
-    (x) => x.distanceKm <= Number(x.store.serviceRadiusKm || 10),
-  );
+  const eligible = withDistance
+    .filter((x) => x.distanceKm <= Number(x.store.serviceRadiusKm ?? 10))
+    .sort((a, b) => a.distanceKm - b.distanceKm);
 
   if (!eligible.length) {
-    throw new AppError(422, "STORE_OUTSIDE_SERVICE_AREA", "No store can serve this delivery address");
+    throw new AppError(422, "STORE_OUTSIDE_SERVICE_AREA", "No Fresh15 store can serve this delivery location");
   }
 
-  eligible.sort((a, b) => a.distanceKm - b.distanceKm);
-  return eligible[0].store;
+  return { ...eligible[0], matchedBy: "NEAREST" };
 };
 
 const getWorkload = async (zoneId, storeId) => {
@@ -95,13 +113,10 @@ const slotForDate = (slot, date, now, workload, zone, store, booked) => {
   const end = new Date(date);
 
   if (isAsap) {
-    // ASAP is relative to the current time; its admin from/to values are not
-    // used as a fixed clock window.
     start.setTime(now.getTime());
   } else {
     start.setHours(Math.floor(slot.fromMinutes / 60), slot.fromMinutes % 60, 0, 0);
     end.setHours(Math.floor(slot.toMinutes / 60), slot.toMinutes % 60, 0, 0);
-
     const cutoff = addMinutes(start, -Number(slot.cutoffMinutesBeforeStart || 0));
     if (dateKey(date) === dateKey(now) && now.getTime() >= cutoff.getTime()) return null;
     if (end <= now) return null;
@@ -110,18 +125,13 @@ const slotForDate = (slot, date, now, workload, zone, store, booked) => {
   const zoneRemaining = Math.max(0, Number(zone.maxConcurrentOrders) - workload.zoneOrders);
   const storeRemaining = Math.max(0, Number(store.maxConcurrentOrders) - workload.storeOrders);
   const slotRemaining = Math.max(0, Number(slot.capacity) - booked);
-  const effectiveCapacity = Math.max(
-    0,
-    Math.min(slotRemaining, zoneRemaining, storeRemaining, workload.partnerRemaining),
-  );
-
+  const effectiveCapacity = Math.max(0, Math.min(slotRemaining, zoneRemaining, storeRemaining, workload.partnerRemaining));
   if (effectiveCapacity <= 0) return null;
 
   const pressure = Math.max(workload.zoneOrders, workload.storeOrders);
   const workloadDelay = Math.min(
     30,
-    Math.ceil(pressure / Math.max(1, Number(slot.capacity))) *
-      Number(zone.workloadDelayMinutes || 0),
+    Math.ceil(pressure / Math.max(1, Number(slot.capacity))) * Number(zone.workloadDelayMinutes || 0),
   );
   const prep = Number(store.prepMinutes || 0);
   const travel = Number(zone.travelMinutes || 0);
@@ -140,6 +150,7 @@ const slotForDate = (slot, date, now, workload, zone, store, booked) => {
     startsAt: start.toISOString(),
     endsAt: isAsap ? promisedAt.toISOString() : end.toISOString(),
     promisedAt: promisedAt.toISOString(),
+    etaMinutes: Math.max(1, Math.ceil((promisedAt.getTime() - now.getTime()) / 60000)),
     remainingCapacity: effectiveCapacity,
     capacity: Number(slot.capacity),
     booked,
@@ -152,31 +163,23 @@ const slotForDate = (slot, date, now, workload, zone, store, booked) => {
       activeDeliveries: workload.activeDeliveries,
       partnerRemaining: workload.partnerRemaining,
     },
-    cutoffAt: isAsap ? now.toISOString() : addMinutes(
-      start,
-      -Number(slot.cutoffMinutesBeforeStart || 0),
-    ).toISOString(),
+    cutoffAt: isAsap ? now.toISOString() : addMinutes(start, -Number(slot.cutoffMinutesBeforeStart || 0)).toISOString(),
   };
 };
 
-
-export const getAvailableDeliverySlotsService = async (userId, addressId) => {
-  const address = await Address.findOne({ _id: addressId, userId });
-  if (!address) throw new AppError(404, "ADDRESS_NOT_FOUND", "Address not found");
-
-  const zone = await resolveZone(address);
-  const store = await resolveStore(address);
+const getAvailableSlotsForLocation = async ({ pincode, latitude, longitude, subtotal = 0, addressId = null }) => {
+  const resolvedZone = await resolveZone({ pincode, latitude, longitude });
+  const resolvedStore = await resolveStore({ latitude, longitude });
+  const zone = resolvedZone.zone;
+  const store = resolvedStore.store;
   const workload = await getWorkload(zone._id, store._id);
   const slots = await DeliverySlot.find({ active: true }).sort({ sortOrder: 1, fromMinutes: 1 }).lean();
-
   const now = new Date();
   const dates = [new Date(now), addMinutes(new Date(now), 24 * 60)];
-  const dayRows = await DeliverySlotDay.find({
-    slotId: { $in: slots.map((s) => s._id) },
-    dateKey: { $in: dates.map(dateKey) },
-  }).lean();
+  const dayRows = slots.length
+    ? await DeliverySlotDay.find({ slotId: { $in: slots.map((s) => s._id) }, dateKey: { $in: dates.map(dateKey) } }).lean()
+    : [];
   const bookedMap = new Map(dayRows.map((row) => [`${row.slotId}:${row.dateKey}`, row.booked]));
-
   const candidates = [];
   for (const date of dates) {
     for (const slot of slots) {
@@ -186,23 +189,71 @@ export const getAvailableDeliverySlotsService = async (userId, addressId) => {
     }
   }
 
+  const sortedCandidates = candidates.slice(0, 12);
+  const earliest = sortedCandidates[0] ?? null;
+  const baseDeliveryFee = Math.max(0, Number(zone.fee ?? 0));
+  const minOrder = Math.max(0, Number(zone.minOrder ?? 0));
+  const setting = await Setting.findOne().lean();
+  const freeDeliveryAbove = Math.max(0, Number(setting?.freeDeliveryAbove ?? 500));
+  const safeSubtotal = Math.max(0, Number(subtotal) || 0);
+  const deliveryFee = safeSubtotal > 0 && safeSubtotal >= freeDeliveryAbove ? 0 : baseDeliveryFee;
+
   return {
     addressId,
-    zone: { id: zone._id, name: zone.name },
-    store: { id: store._id, name: store.name, code: store.code },
-    slots: candidates.slice(0, 12),
+    serviceable: true,
+    matchedBy: resolvedZone.matchedBy,
+    pincode: String(pincode || "").trim() || null,
+    location: Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))
+      ? { latitude: Number(latitude), longitude: Number(longitude) }
+      : null,
+    zone: {
+      id: zone._id,
+      name: zone.name,
+      city: zone.city,
+      fee: baseDeliveryFee,
+      minOrder,
+      serviceRadiusKm: Number(zone.serviceRadiusKm ?? 5),
+    },
+    store: {
+      id: store._id,
+      name: store.name,
+      code: store.code,
+      distanceKm: resolvedStore.distanceKm === null ? null : Number(resolvedStore.distanceKm.toFixed(2)),
+    },
+    etaMinutes: earliest?.etaMinutes ?? null,
+    deliveryFee,
+    baseDeliveryFee,
+    freeDeliveryAbove,
+    minOrder,
+    slots: sortedCandidates,
     generatedAt: now.toISOString(),
   };
 };
 
+export const getServiceabilityService = async ({ pincode, latitude, longitude, subtotal = 0 }) => {
+  return getAvailableSlotsForLocation({ pincode, latitude, longitude, subtotal });
+};
+
+export const getAvailableDeliverySlotsService = async (userId, addressId) => {
+  const address = await Address.findOne({ _id: addressId, userId });
+  if (!address) throw new AppError(404, "ADDRESS_NOT_FOUND", "Address not found");
+  return getAvailableSlotsForLocation({
+    addressId,
+    pincode: address.pincode,
+    latitude: address.latitude,
+    longitude: address.longitude,
+  });
+};
+
 export const reserveDeliverySlotService = async ({ userId, addressId, slotId, dateKey: requestedDateKey }) => {
   if (!slotId || !requestedDateKey) throw new AppError(400, "DELIVERY_SLOT_REQUIRED", "A delivery slot is required");
-
   const address = await Address.findOne({ _id: addressId, userId });
   if (!address) throw new AppError(404, "ADDRESS_NOT_FOUND", "Address not found");
 
-  const zone = await resolveZone(address);
-  const store = await resolveStore(address);
+  const resolvedZone = await resolveZone({ pincode: address.pincode, latitude: address.latitude, longitude: address.longitude });
+  const resolvedStore = await resolveStore({ latitude: address.latitude, longitude: address.longitude });
+  const zone = resolvedZone.zone;
+  const store = resolvedStore.store;
   const slot = await DeliverySlot.findOne({ _id: slotId, active: true });
   if (!slot) throw new AppError(404, "DELIVERY_SLOT_NOT_FOUND", "Delivery slot is no longer available");
 
@@ -214,21 +265,13 @@ export const reserveDeliverySlotService = async ({ userId, addressId, slotId, da
   const existingDay = await DeliverySlotDay.findOne({ slotId: slot._id, dateKey: requestedDateKey }).lean();
   const existingBooked = Number(existingDay?.booked || 0);
   const preview = slotForDate(slot.toObject(), requestedDate, now, workload, zone, store, existingBooked);
-
-  if (!preview) {
-    throw new AppError(409, "DELIVERY_SLOT_UNAVAILABLE", "This delivery slot is no longer available");
-  }
+  if (!preview) throw new AppError(409, "DELIVERY_SLOT_UNAVAILABLE", "This delivery slot is no longer available");
 
   const day = await DeliverySlotDay.findOneAndUpdate(
-    {
-      slotId: slot._id,
-      dateKey: requestedDateKey,
-      $expr: { $lt: ["$booked", Number(slot.capacity)] },
-    },
+    { slotId: slot._id, dateKey: requestedDateKey, $expr: { $lt: ["$booked", Number(slot.capacity)] } },
     { $inc: { booked: 1 } },
-    { new: true, upsert: false }
+    { new: true, upsert: false },
   );
-
   if (!day) {
     if (existingBooked > 0) throw new AppError(409, "DELIVERY_SLOT_FULL", "This delivery slot just became unavailable");
     try {
@@ -239,6 +282,9 @@ export const reserveDeliverySlotService = async ({ userId, addressId, slotId, da
     }
   }
 
+  const setting = await Setting.findOne().lean();
+  const freeDeliveryAbove = Math.max(0, Number(setting?.freeDeliveryAbove ?? 500));
+  const baseDeliveryFee = Math.max(0, Number(zone.fee ?? 0));
   return {
     slotId: slot._id,
     dateKey: requestedDateKey,
@@ -248,13 +294,18 @@ export const reserveDeliverySlotService = async ({ userId, addressId, slotId, da
     endsAt: preview.endsAt,
     zoneId: zone._id,
     storeId: store._id,
+    minOrder: Math.max(0, Number(zone.minOrder ?? 0)),
+    baseDeliveryFee,
+    freeDeliveryAbove,
+    storeDistanceKm: resolvedStore.distanceKm === null ? null : Number(resolvedStore.distanceKm.toFixed(2)),
+    etaMinutes: preview.etaMinutes,
   };
 };
 
 export const releaseReservedDeliverySlotService = async (slotId, requestedDateKey) => {
   await DeliverySlotDay.findOneAndUpdate(
     { slotId, dateKey: requestedDateKey, booked: { $gt: 0 } },
-    { $inc: { booked: -1 } }
+    { $inc: { booked: -1 } },
   );
 };
 

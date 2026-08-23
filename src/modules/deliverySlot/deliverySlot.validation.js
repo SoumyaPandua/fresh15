@@ -1,10 +1,16 @@
-import { body, param } from "express-validator";
+import { body, param, query } from "express-validator";
 
 const minutes = (field) => body(field).isInt({ min: 0, max: 1440 }).withMessage(`${field} must be between 0 and 1440`);
 const positive = (field) => body(field).isInt({ min: 1, max: 100000 }).withMessage(`${field} must be a positive integer`);
 
 export const getAvailableSlotsValidation = [
   param("addressId").isMongoId().withMessage("Invalid address ID"),
+];
+
+export const serviceabilityValidation = [
+  query("pincode").optional().trim().matches(/^\d{6}$/).withMessage("Pincode must be 6 digits"),
+  query("latitude").optional().isFloat({ min: -90, max: 90 }).withMessage("Invalid latitude"),
+  query("longitude").optional().isFloat({ min: -180, max: 180 }).withMessage("Invalid longitude"),
 ];
 
 export const createSlotValidation = [
@@ -37,6 +43,9 @@ export const zoneValidation = [
   body("name").optional().trim().notEmpty().isLength({ max: 100 }),
   body("pincodes").optional().isArray({ max: 500 }),
   body("pincodes.*").optional().trim().matches(/^\d{5,6}$/),
+  body("latitude").optional({ nullable: true }).isFloat({ min: -90, max: 90 }),
+  body("longitude").optional({ nullable: true }).isFloat({ min: -180, max: 180 }),
+  body("serviceRadiusKm").optional().isFloat({ min: 0, max: 100 }),
   body("fee").optional().isFloat({ min: 0 }),
   body("minOrder").optional().isFloat({ min: 0 }),
   body("maxConcurrentOrders").optional().isInt({ min: 1 }),
