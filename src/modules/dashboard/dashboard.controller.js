@@ -4,6 +4,7 @@ import { sendError } from "../../utils/errorResponse.js";
 import {
   getAdminDashboardService,
   getAdminRevenueService,
+  getAdminAnalyticsService,
   getCustomerDashboardService,
   getSellerDashboardService,
 } from "./dashboard.service.js";
@@ -21,6 +22,16 @@ export const getAdminRevenue = async (req, res) => {
   try {
     const data = await getAdminRevenueService();
     return sendResponse(res, 200, true, "Revenue fetched successfully", data);
+  } catch (error) {
+    return sendError(res, error);
+  }
+};
+
+
+export const getAdminAnalytics = async (req, res) => {
+  try {
+    const data = await getAdminAnalyticsService();
+    return sendResponse(res, 200, true, "Analytics fetched successfully", data);
   } catch (error) {
     return sendError(res, error);
   }

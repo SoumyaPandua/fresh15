@@ -4,6 +4,7 @@ import authorize from "../../middleware/authorize.middleware.js";
 import {
   getAdminDashboard,
   getAdminRevenue,
+  getAdminAnalytics,
   getCustomerDashboard,
   getSellerDashboard,
 } from "./dashboard.controller.js";
@@ -14,6 +15,7 @@ router.use(authMiddleware);
 
 router.get("/admin", authorize("ADMIN", "SUPER_ADMIN"), getAdminDashboard);
 router.get("/admin/revenue", authorize("ADMIN", "SUPER_ADMIN"), getAdminRevenue);
+router.get("/admin/analytics", authorize("ADMIN", "SUPER_ADMIN"), getAdminAnalytics);
 router.get("/seller", authorize("ADMIN", "SUPER_ADMIN", "SELLER"), getSellerDashboard);
 router.get("/customer", authorize("CUSTOMER"), getCustomerDashboard);
 

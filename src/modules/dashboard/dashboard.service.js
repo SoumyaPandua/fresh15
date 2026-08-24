@@ -208,6 +208,308 @@ export const getAdminRevenueService = async () => {
     };
 };
 
+
+export const getAdminAnalyticsService = async () => {
+    const last30Days = daysAgo(30);
+    const today = startOfDay();
+
+    const [
+        revenueStats,
+        dailyRevenue,
+        hourlyOrders,
+        categoryRevenue,
+        newCustomers,
+        totalCustomers,
+        customerOrderStats,
+    ] = await Promise.all([
+        Order.aggregate([
+            {
+                $match: {
+                    paymentStatus: "PAID",
+                    createdAt: { $gte: last30Days },
+                    isDeleted: { $ne: true },
+                },
+            },
+            {
+                $group: {
+                    _id: null,
+                    revenue: { $sum: "$grandTotal" },
+                    orders: { $sum: 1 },
+                },
+            },
+        ]),
+        Order.aggregate([
+            {
+                $match: {
+                    paymentStatus: "PAID",
+                    createdAt: { $gte: last30Days },
+                    isDeleted: { $ne: true },
+                },
+            },
+            {
+                $group: {
+                    _id: {
+                        $dateToString: {
+                            format: "%Y-%m-%d",
+                            date: "$createdAt",
+                        },
+                    },
+                    revenue: { $sum: "$grandTotal" },
+                    orders: { $sum: 1 },
+                },
+            },
+            { $sort: { "_id": 1 } },
+        ]),
+        Order.aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: today },
+                    isDeleted: { $ne: true },
+                },
+            },
+            {
+                $group: {
+                    _id: { $hour: "$createdAt" },
+                    orders: { $sum: 1 },
+                },
+            },
+            { $sort: { "_id": 1 } },
+        ]),
+        Order.aggregate([
+            {
+                $match: {
+                    paymentStatus: "PAID",
+                    createdAt: { $gte: last30Days },
+                    isDeleted: { $ne: true },
+                },
+            },
+            { $unwind: "$items" },
+            {
+                $lookup: {
+                    from: "products",
+                    localField: "items.productId",
+                    foreignField: "_id",
+                    as: "product",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$product",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+            {
+                $lookup: {
+                    from: "categories",
+                    localField: "product.categoryId",
+                    foreignField: "_id",
+                    as: "category",
+                },
+            },
+            {
+                $unwind: {
+                    path: "$category",
+                    preserveNullAndEmptyArrays: true,
+                },
+            },
+            {
+                $group: {
+                    _id: {
+                        $ifNull: ["$category.name", "Other"],
+                    },
+                    revenue: { $sum: "$items.subtotal" },
+                },
+            },
+            { $sort: { revenue: -1 } },
+        ]),
+        User.countDocuments({
+            role: "CUSTOMER",
+            createdAt: { $gte: last30Days },
+        }),
+        User.countDocuments({
+            role: "CUSTOMER",
+        }),
+        Order.aggregate([
+            {
+                $match: {
+                    createdAt: { $gte: last30Days },
+                    isDeleted: { $ne: true },
+                    userId: { $ne: null },
+                },
+            },
+            {
+                $group: {
+                    _id: "$userId",
+                    orders: { $sum: 1 },
+                },
+            },
+        ]),
+    ]);
+
+    const totalRevenue = Number(revenueStats[0]?.revenue || 0);
+    const totalOrders = Number(revenueStats[0]?.orders || 0);
+    const customersWithOrders = customerOrderStats.length;
+    const repeatCustomers = customerOrderStats.filter(
+        (item) => Number(item.orders || 0) > 1
+    ).length;
+
+    const repeatRate =
+        customersWithOrders > 0
+            ? (repeatCustomers / customersWithOrders) * 100
+            : 0;
+
+    const ordersPerCustomer =
+        customersWithOrders > 0
+            ? totalOrders / customersWithOrders
+            : 0;
+
+    const conversion =
+        totalCustomers > 0
+            ? (customersWithOrders / totalCustomers) * 100
+            : 0;
+
+    const dailyMap = new Map(
+        dailyRevenue.map((item) => [
+            item._id,
+            {
+                date: item._id,
+                revenue: Number(item.revenue || 0),
+                orders: Number(item.orders || 0),
+            },
+        ])
+    );
+
+    const revenueSeries = [];
+    for (let i = 29; i >= 0; i -= 1) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const key = date.toISOString().slice(0, 10);
+
+        revenueSeries.push(
+            dailyMap.get(key) || {
+                date: key,
+                revenue: 0,
+                orders: 0,
+            }
+        );
+    }
+
+    const hourlyMap = new Map(
+        hourlyOrders.map((item) => [
+            Number(item._id),
+            Number(item.orders || 0),
+        ])
+    );
+
+    const hourlySeries = Array.from({ length: 24 }, (_, hour) => ({
+        hour: `${String(hour).padStart(2, "0")}:00`,
+        orders: hourlyMap.get(hour) || 0,
+    }));
+
+    const categoryTotal = categoryRevenue.reduce(
+        (sum, item) => sum + Number(item.revenue || 0),
+        0
+    );
+
+    const categoryMix = categoryRevenue.map((item) => ({
+        name: item._id,
+        value:
+            categoryTotal > 0
+                ? Number(
+                      (
+                          (Number(item.revenue || 0) /
+                              categoryTotal) *
+                          100
+                      ).toFixed(1)
+                  )
+                : 0,
+        revenue: Number(item.revenue || 0),
+    }));
+
+    // Retention is calculated from real order history:
+    // customers who ordered in each weekly cohort and subsequently ordered again.
+    const weeklyRetention = [];
+
+    for (let week = 8; week >= 1; week -= 1) {
+        const cohortStart = new Date();
+        cohortStart.setDate(cohortStart.getDate() - week * 7);
+
+        const cohortEnd = new Date();
+        cohortEnd.setDate(cohortEnd.getDate() - (week - 1) * 7);
+
+        const cohortCustomers = await Order.aggregate([
+            {
+                $match: {
+                    createdAt: {
+                        $gte: cohortStart,
+                        $lt: cohortEnd,
+                    },
+                    isDeleted: { $ne: true },
+                    userId: { $ne: null },
+                },
+            },
+            {
+                $group: {
+                    _id: "$userId",
+                },
+            },
+        ]);
+
+        const customerIds = cohortCustomers
+            .map((item) => item._id)
+            .filter(Boolean);
+
+        if (customerIds.length === 0) {
+            weeklyRetention.push({
+                week: `W${9 - week}`,
+                rate: 0,
+            });
+            continue;
+        }
+
+        const returnedCustomers = await Order.aggregate([
+            {
+                $match: {
+                    userId: { $in: customerIds },
+                    createdAt: { $gte: cohortEnd },
+                    isDeleted: { $ne: true },
+                },
+            },
+            {
+                $group: {
+                    _id: "$userId",
+                },
+            },
+        ]);
+
+        weeklyRetention.push({
+            week: `W${9 - week}`,
+            rate: Number(
+                (
+                    (returnedCustomers.length / customerIds.length) *
+                    100
+                ).toFixed(1)
+            ),
+        });
+    }
+
+    return {
+        overview: {
+            mrr: totalRevenue,
+            newCustomers,
+            repeatRate: Number(repeatRate.toFixed(1)),
+            ordersPerCustomer: Number(ordersPerCustomer.toFixed(1)),
+            totalCustomers,
+            totalOrders,
+            conversion: Number(conversion.toFixed(1)),
+        },
+        revenueSeries,
+        weeklyRetention,
+        hourlyOrders: hourlySeries,
+        categoryMix,
+    };
+};
+
 export const getAdminDashboardService = async () => {
     const last30Days = daysAgo(30);
     const today = startOfDay();
