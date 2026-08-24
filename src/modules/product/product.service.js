@@ -13,8 +13,10 @@ export const getAllProductsService = async (query) => {
     isDeleted: false,
   };
 
-  if (query.categoryId) {
-    filter.categoryId = query.categoryId;
+  const categoryFilter = query.categoryId || query.category;
+
+  if (categoryFilter) {
+    filter.categoryId = categoryFilter;
   }
 
   if (query.isFeatured !== undefined) {
@@ -26,9 +28,22 @@ export const getAllProductsService = async (query) => {
   }
 
   if (query.search) {
-    filter.$text = {
-      $search: query.search,
-    };
+    const search = String(query.search).trim();
+    const escaped = search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const categoryMatches = await Category.find({
+      isDeleted: false,
+      isActive: true,
+      $or: [
+        { name: { $regex: escaped, $options: "i" } },
+        { slug: { $regex: escaped, $options: "i" } },
+      ],
+    }).select("_id").lean();
+
+    const categoryIds = categoryMatches.map((category) => category._id);
+    filter.$or = [
+      { $text: { $search: search } },
+      ...(categoryIds.length ? [{ categoryId: { $in: categoryIds } }] : []),
+    ];
   }
 
   const pagination = parsePagination(query);
