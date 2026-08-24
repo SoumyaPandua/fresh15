@@ -24,6 +24,7 @@ import productAlertRoutes from "../modules/productAlert/productAlert.routes.js";
 import groceryListRoutes from "../modules/groceryList/groceryList.routes.js";
 import loyaltyRoutes from "../modules/loyalty/loyalty.routes.js";
 import partnerOpsRoutes from "../modules/partnerOps/partnerOps.routes.js";
+import auditRoutes from "../modules/audit/audit.routes.js";
 
 const router = Router();
 
@@ -56,5 +57,6 @@ router.use("/product-alerts", productAlertRoutes);
 router.use("/grocery-lists", groceryListRoutes);
 router.use("/loyalty", loyaltyRoutes);
 router.use("/partner-ops", partnerOpsRoutes);
+router.use("/audit", auditRoutes);
 
 export default router;
