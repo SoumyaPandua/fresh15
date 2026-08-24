@@ -35,6 +35,13 @@ const refundSchema = new mongoose.Schema(
       trim: true,
       maxlength: 500,
     },
+    statusHistory: [
+      {
+        _id: false,
+        status: { type: String, required: true },
+        at: { type: Date, default: Date.now },
+      },
+    ],
     status: {
       type: String,
       enum: [
@@ -86,6 +93,22 @@ const refundSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+refundSchema.pre("save", function (next) {
+  if (this.isNew) {
+    if (!this.statusHistory?.length) {
+      this.statusHistory = [{ status: this.status, at: new Date() }];
+    }
+  } else if (this.isModified("status")) {
+    const history = this.statusHistory || [];
+    const last = history[history.length - 1];
+    if (!last || last.status !== this.status) {
+      history.push({ status: this.status, at: new Date() });
+    }
+    this.statusHistory = history;
+  }
+  next();
+});
 
 refundSchema.index({ userId: 1, createdAt: -1 });
 refundSchema.index({ orderId: 1, createdAt: -1 });
