@@ -9,6 +9,8 @@ export const getAdminAuditLogs = async (req, res) => {
       limit: req.query.limit,
       search: req.query.search,
       action: req.query.action,
+      resourceType: req.query.resourceType,
+      ip: req.query.ip,
     });
 
     return sendResponse(res, 200, true, "Audit logs fetched successfully", data);

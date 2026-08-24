@@ -1,6 +1,7 @@
 import jwt from "jsonwebtoken";
 import User from "../modules/user/user.model.js";
 import AppError from "../utils/AppError.js";
+import { writeAuditLog } from "../modules/audit/audit.service.js";
 
 const authMiddleware = async (req, res, next) => {
   try {
@@ -29,6 +30,19 @@ const authMiddleware = async (req, res, next) => {
     req.user = user;
     return next();
   } catch (error) {
+    void writeAuditLog({
+      actorId: null,
+      action: "AUTHN_FAILED",
+      resourceType: "Authentication",
+      details: {
+        reason: error?.code || error?.message || "INVALID_TOKEN",
+        method: req.method,
+        path: req.originalUrl || req.url,
+      },
+      outcome: "FAILURE",
+      statusCode: error instanceof AppError ? error.statusCode : 401,
+    });
+
     if (error instanceof AppError) {
       return res.status(error.statusCode).json({
         success: false,

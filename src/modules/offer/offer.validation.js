@@ -1,74 +1,49 @@
 import { body } from "express-validator";
 
+const targetTypes = ["NONE", "SEARCH", "CATEGORY", "PRODUCT", "OFFER"];
+
+const scheduleValidator = (value, { req }) => {
+    if (!value) return true;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) throw new Error("Invalid date");
+    if (req.body?.startsAt && req.body?.endsAt && new Date(req.body.startsAt) >= new Date(req.body.endsAt)) {
+        throw new Error("startsAt must be before endsAt");
+    }
+    return true;
+};
+
 export const createOfferValidation = [
-    body("title")
-        .trim()
-        .notEmpty()
-        .withMessage("Offer title is required")
-        .isLength({ max: 150 })
-        .withMessage("Offer title cannot exceed 150 characters"),
-
-    body("description")
-        .optional()
-        .trim()
-        .isLength({ max: 500 })
-        .withMessage("Offer description cannot exceed 500 characters"),
-
-    body("discount")
-        .trim()
-        .notEmpty()
-        .withMessage("Discount label is required")
-        .isLength({ max: 50 })
-        .withMessage("Discount label cannot exceed 50 characters"),
-
-    body("category")
-        .trim()
-        .notEmpty()
-        .withMessage("Offer category is required")
-        .isLength({ max: 100 })
-        .withMessage("Offer category cannot exceed 100 characters"),
-
-    body("isActive")
-        .optional()
-        .isBoolean()
-        .withMessage("isActive must be boolean"),
+    body("title").trim().notEmpty().isLength({ max: 150 }),
+    body("description").optional().trim().isLength({ max: 500 }),
+    body("discount").trim().notEmpty().isLength({ max: 50 }),
+    body("category").trim().notEmpty().isLength({ max: 100 }),
+    body("placement").optional().trim().isLength({ max: 50 }),
+    body("ctaText").optional().trim().isLength({ max: 40 }),
+    body("targetType").optional().isIn(targetTypes),
+    body("targetValue").optional().trim().isLength({ max: 200 }),
+    body("couponCode").optional().trim().isLength({ max: 50 }),
+    body("priority").optional().isInt({ min: 0, max: 1000 }),
+    body("startsAt").optional().custom(scheduleValidator),
+    body("endsAt").optional().custom(scheduleValidator),
+    body("isActive").optional().isBoolean(),
 ];
 
 export const updateOfferValidation = [
-    body("title")
-        .optional()
-        .trim()
-        .notEmpty()
-        .withMessage("Offer title cannot be empty")
-        .isLength({ max: 150 }),
-
-    body("description")
-        .optional()
-        .trim()
-        .isLength({ max: 500 }),
-
-    body("discount")
-        .optional()
-        .trim()
-        .notEmpty()
-        .withMessage("Discount label cannot be empty")
-        .isLength({ max: 50 }),
-
-    body("category")
-        .optional()
-        .trim()
-        .notEmpty()
-        .withMessage("Offer category cannot be empty")
-        .isLength({ max: 100 }),
-
-    body("isActive")
-        .optional()
-        .isBoolean()
-        .withMessage("isActive must be boolean"),
+    body("title").optional().trim().notEmpty().isLength({ max: 150 }),
+    body("description").optional().trim().isLength({ max: 500 }),
+    body("discount").optional().trim().notEmpty().isLength({ max: 50 }),
+    body("category").optional().trim().notEmpty().isLength({ max: 100 }),
+    body("placement").optional().trim().isLength({ max: 50 }),
+    body("ctaText").optional().trim().isLength({ max: 40 }),
+    body("targetType").optional().isIn(targetTypes),
+    body("targetValue").optional().trim().isLength({ max: 200 }),
+    body("couponCode").optional().trim().isLength({ max: 50 }),
+    body("priority").optional().isInt({ min: 0, max: 1000 }),
+    body("startsAt").optional().custom(scheduleValidator),
+    body("endsAt").optional().custom(scheduleValidator),
+    body("isActive").optional().isBoolean(),
 ];
 
 export const updateOfferStatusValidation = [
-    body("isActive")
-        .isBoolean()
-        .withMessage("isActive must be boolean"),
+    body("isActive").isBoolean(),
 ];
