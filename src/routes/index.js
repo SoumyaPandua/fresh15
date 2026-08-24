@@ -10,6 +10,7 @@ import wishlistRoutes from "../modules/wishlist/wishlist.routes.js";
 import couponRoutes from "../modules/coupon/coupon.routes.js";
 import orderRoutes from "../modules/order/order.routes.js";
 import paymentRoutes from "../modules/payment/payment.routes.js";
+import refundRoutes from "../modules/refund/refund.routes.js";
 import deliveryRoutes from "../modules/delivery/delivery.routes.js";
 import reviewRoutes from "../modules/review/review.routes.js";
 import notificationRoutes from "../modules/notification/notification.routes.js";
@@ -29,7 +30,13 @@ import auditRoutes from "../modules/audit/audit.routes.js";
 const router = Router();
 
 router.get("/health", (req, res) => {
-  res.status(200).json({ success: true, message: "Backend Running", code: "OK", data: null, errors: [] });
+  res.status(200).json({
+    success: true,
+    message: "Backend Running",
+    code: "OK",
+    data: null,
+    errors: [],
+  });
 });
 
 router.use("/auth", authRoutes);
@@ -43,6 +50,7 @@ router.use("/wishlist", wishlistRoutes);
 router.use("/coupon", couponRoutes);
 router.use("/order", orderRoutes);
 router.use("/payment", paymentRoutes);
+router.use("/refund", refundRoutes);
 router.use("/delivery", deliveryRoutes);
 router.use("/review", reviewRoutes);
 router.use("/notification", notificationRoutes);
