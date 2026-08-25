@@ -26,6 +26,7 @@ import groceryListRoutes from "../modules/groceryList/groceryList.routes.js";
 import loyaltyRoutes from "../modules/loyalty/loyalty.routes.js";
 import partnerOpsRoutes from "../modules/partnerOps/partnerOps.routes.js";
 import auditRoutes from "../modules/audit/audit.routes.js";
+import aiRoutes from "../modules/ai/ai.routes.js";
 
 const router = Router();
 
@@ -66,5 +67,6 @@ router.use("/grocery-lists", groceryListRoutes);
 router.use("/loyalty", loyaltyRoutes);
 router.use("/partner-ops", partnerOpsRoutes);
 router.use("/audit", auditRoutes);
+router.use("/ai", aiRoutes);
 
 export default router;
