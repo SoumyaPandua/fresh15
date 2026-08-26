@@ -16,7 +16,7 @@ const ALLOWED_ROLES = new Set(["CUSTOMER", "PARTNER", "ADMIN", "SUPER_ADMIN", "S
 const BLOCKED = /\b(password|passwd|secret|api[ -]?key|jwt|token|otp|database|mongodb|mongo uri|private key|source code|system prompt|developer prompt|admin password|staff password|delivery partner password|bypass|hack|exploit|security vulnerability)\b/i;
 const GENERAL_SCOPES = /\b(fresh15|grocery|groceries|product|products|price|cart|wishlist|order|orders|delivery|refund|payment|offer|coupon|loyalty|points|reorder|weekly|basket|category|inventory|partner|rider|route|queue|earning|earnings|shift|break|pause|cash|incident|document|audit|analytics|dashboard|revenue|support|help|serviceability|slot)\b/i;
 
-const clean = (v, n = MAX_INPUT) => String(v ?? "").replace(/[\\u0000-\\u001f\\u007f]/g, " ").trim().slice(0, n);
+const clean = (v, n = MAX_INPUT) => String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, n);
 
 function clientIp(req) {
   const x = req.headers["x-forwarded-for"];
@@ -134,7 +134,18 @@ export async function agent({ user, message, req }) {
     await writeAuditLog({ actorId: user._id, action: "AI_AGENT_BLOCKED", resourceType: "AIAgent", details: { role, ip: clientIp(req), reason: "blocked_content" }, outcome: "SUCCESS", statusCode: 200 });
     return { reply: "I can help with Fresh15 tasks, but I can’t provide secrets, credentials, internal system details, or security-bypass instructions.", actions: [], blocked: true };
   }
-  if (!GENERAL_SCOPES.test(text)) return { reply: "I’m Fresh15 AI Agent. I can help with Fresh15 tasks and workflows. Tell me what you want to do in Fresh15.", actions: [], blocked: true };
+  if (!GENERAL_SCOPES.test(text)) {
+    const reply = "I’m Fresh15 AI Agent. I can help with Fresh15 tasks and workflows. Tell me what you want to do in Fresh15.";
+    await writeAuditLog({
+      actorId: user._id,
+      action: "AI_AGENT_BLOCKED",
+      resourceType: "AIAgent",
+      details: { role, ip: clientIp(req), reason: "off_topic", requestedTextLength: text.length },
+      outcome: "SUCCESS",
+      statusCode: 200,
+    });
+    return { reply, actions: [], blocked: true };
+  }
   const context = role === "CUSTOMER" ? await getMyCartService(user._id).then((c) => ({ cart: safeResult("get_cart", c) })) : {};
   const plan = await makePlan({ role, message: text, context, tools: toolDefinitions(role) });
   const executions = [];
