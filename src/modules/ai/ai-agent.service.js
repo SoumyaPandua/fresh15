@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import Product from "../product/product.model.js";
+import Inventory from "../inventory/inventory.model.js";
 import Address from "../address/address.model.js";
 import AiConversation from "./ai.model.js";
 import { getMyCartService, addToCartService, removeCartItemService, updateCartItemService } from "../cart/cart.service.js";
@@ -34,11 +35,75 @@ function clientIp(req) {
 async function searchProducts(query) {
   const q = clean(query, 200);
   if (!q) return [];
-  const terms = q.toLowerCase().split(/\s+/).filter((x) => x.length > 2).slice(0, 6);
-  const regex = terms.length ? new RegExp(terms.map((x) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i") : null;
-  const filter = { isActive: true, isDeleted: false, ...(regex ? { $or: [{ name: regex }, { description: regex }, { tags: regex }] } : {}) };
-  const products = await Product.find(filter).select("name images sellingPrice mrp unit sku stock categoryId tags averageRating").limit(12).lean();
-  return products.map((p) => ({ id: String(p._id), name: p.name, price: Number(p.sellingPrice || 0), mrp: Number(p.mrp || 0), unit: p.unit, stock: Number(p.stock || 0), inStock: Number(p.stock || 0) > 0, image: p.images?.[0] || null, rating: Number(p.averageRating || 0) }));
+
+  const terms = q
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((x) => x.length > 2)
+    .slice(0, 6);
+
+  const regex = terms.length
+    ? new RegExp(
+        terms
+          .map((x) =>
+            x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"),
+          )
+          .join("|"),
+        "i",
+      )
+    : null;
+
+  const filter = {
+    isActive: true,
+    isDeleted: false,
+    ...(regex
+      ? {
+          $or: [
+            { name: regex },
+            { description: regex },
+            { tags: regex },
+          ],
+        }
+      : {}),
+  };
+
+  const products = await Product.find(filter)
+    .select(
+      "name images sellingPrice mrp unit sku stock categoryId tags averageRating",
+    )
+    .limit(12)
+    .lean();
+
+  const inventory = products.length
+    ? await Inventory.find({
+        productId: { $in: products.map((p) => p._id) },
+      })
+        .select("productId availableStock")
+        .lean()
+    : [];
+
+  const stockByProductId = new Map(
+    inventory.map((item) => [
+      String(item.productId),
+      Number(item.availableStock || 0),
+    ]),
+  );
+
+  return products.map((p) => {
+    const availableStock = stockByProductId.get(String(p._id)) ?? 0;
+
+    return {
+      id: String(p._id),
+      name: p.name,
+      price: Number(p.sellingPrice || 0),
+      mrp: Number(p.mrp || 0),
+      unit: p.unit,
+      stock: availableStock,
+      inStock: availableStock > 0,
+      image: p.images?.[0] || null,
+      rating: Number(p.averageRating || 0),
+    };
+  });
 }
 
 const TOOL_MAP = {
@@ -452,7 +517,33 @@ async function executeTool(userId, role, tool, args, message, conversation) {
   switch (tool) {
     case "search_products": return { products: await searchProducts(args.query) };
     case "get_cart": return await getMyCartService(userId);
-    case "add_to_cart": return await addToCartService(userId, { productId: args.productId, quantity: Math.max(1, Math.min(50, Number(args.quantity) || 1)) });
+    case "add_to_cart": {
+      const productId = String(args.productId || "").trim();
+      const quantity = Math.max(
+        1,
+        Math.min(50, Number(args.quantity) || 1),
+      );
+
+      if (!productId) {
+        throw new AppError(
+          422,
+          "PRODUCT_ID_REQUIRED",
+          "A valid product is required before adding to cart",
+        );
+      }
+
+      const cart = await addToCartService(userId, {
+        productId,
+        quantity,
+      });
+
+      const refreshedCart = await getMyCartService(userId);
+
+      return {
+        cart,
+        verifiedCart: refreshedCart,
+      };
+    }
     case "remove_from_cart": return await removeCartItemService(userId, args.productId);
     case "update_cart_quantity": return await updateCartItemService(userId, args.productId, Math.max(1, Math.min(50, Number(args.quantity) || 1)));
     case "get_wishlist": return await getMyWishlistService(userId);
@@ -470,6 +561,24 @@ async function executeTool(userId, role, tool, args, message, conversation) {
   }
 }
 function safeResult(tool, result) {
+  if (tool === "add_to_cart") {
+    const cart = result?.verifiedCart || result?.cart || result;
+
+    return {
+      success: true,
+      cart: {
+        subtotal: Number(cart?.subtotal || 0),
+        totalQuantity: Number(cart?.totalQuantity || 0),
+        items: (cart?.items || []).map((i) => ({
+          productId: String(i.productId?._id || i.productId),
+          name: i.productId?.name || "Item",
+          quantity: Number(i.quantity || 0),
+          price: Number(i.price || 0),
+        })),
+      },
+    };
+  }
+
   if (tool === "get_cart") return { subtotal: result?.subtotal, totalQuantity: result?.totalQuantity, items: (result?.items || []).map((i) => ({ productId: i.productId?._id || i.productId, name: i.productId?.name, quantity: i.quantity, price: i.price })) };
   if (tool === "get_wishlist") return { items: (result?.items || []).map((i) => ({ productId: i.productId?._id || i.productId, name: i.productId?.name, price: i.productId?.sellingPrice })) };
   if (tool === "get_orders") {
