@@ -13,11 +13,12 @@ const deliveryZoneSchema = new mongoose.Schema(
     maxConcurrentOrders: { type: Number, default: 100, min: 1, max: 100000 },
     travelMinutes: { type: Number, default: 10, min: 0, max: 240 },
     workloadDelayMinutes: { type: Number, default: 3, min: 0, max: 60 },
+    eligibleStoreIds: [{ type: mongoose.Schema.Types.ObjectId, ref: "DeliveryStore", index: true }],
     active: { type: Boolean, default: true, index: true },
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 deliveryZoneSchema.index({ pincodes: 1, active: 1 });

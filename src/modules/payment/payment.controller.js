@@ -1,10 +1,10 @@
 import sendResponse from "../../utils/sendResponse.js";
 import { sendError } from "../../utils/errorResponse.js";
+import { verifyPaymentAuthoritatively } from "./payment-authoritative.service.js";
 import {
   createPaymentOrderService,
   getPaymentByOrderService,
   paymentFailureService,
-  verifyPaymentService,
   reconcilePendingOnlinePaymentService,
   getCodReportService,
   getRazorpayReportService,
@@ -16,7 +16,7 @@ export const createPaymentOrder = async (req, res) => {
 };
 
 export const verifyPayment = async (req, res) => {
-  try { return sendResponse(res, 200, true, "Payment verified successfully", await verifyPaymentService(req.user._id, req.body)); }
+  try { return sendResponse(res, 200, true, "Payment verified successfully", await verifyPaymentAuthoritatively(req.user._id, req.body)); }
   catch (error) { return sendError(res, error); }
 };
 

@@ -1,13 +1,13 @@
 import crypto from "crypto";
+import mongoose from "mongoose";
 import Order from "../order/order.model.js";
-import User from "../user/user.model.js";
 import { LoyaltyLedger, LoyaltyWallet } from "./loyalty.model.js";
 import AppError from "../../utils/AppError.js";
 import { sendNotificationService } from "../notification/notification.service.js";
 
 export const LOYALTY = Object.freeze({
-  RUPEES_PER_EARN_POINT: 10,       // 1 point per ₹10 eligible spend
-  POINTS_PER_RUPEE_REDEEMED: 10,  // 10 points = ₹1
+  RUPEES_PER_EARN_POINT: 10,
+  POINTS_PER_RUPEE_REDEEMED: 10,
   FIRST_REORDER_BONUS: 50,
   REFERRER_REWARD: 100,
   REFERRED_FRIEND_REWARD: 100,
@@ -15,39 +15,59 @@ export const LOYALTY = Object.freeze({
   MIN_REDEMPTION_POINTS: 50,
 });
 
-const makeReferralCode = (userId) => `F15${String(userId).slice(-6).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
+const makeReferralCode = (userId) =>
+  `F15${String(userId).slice(-6).toUpperCase()}${crypto.randomBytes(2).toString("hex").toUpperCase()}`;
 
-export async function getOrCreateWallet(userId) {
-  let wallet = await LoyaltyWallet.findOne({ userId });
-  if (wallet) return wallet;
-  for (let i = 0; i < 4; i += 1) {
-    try {
-      return await LoyaltyWallet.create({ userId, referralCode: makeReferralCode(userId) });
-    } catch (error) {
-      if (error?.code !== 11000) throw error;
-      wallet = await LoyaltyWallet.findOne({ userId });
-      if (wallet) return wallet;
-    }
-  }
-  throw new AppError(500, "LOYALTY_WALLET_FAILED", "Unable to create loyalty wallet");
+export async function getOrCreateWallet(userId, session) {
+  const query = LoyaltyWallet.findOneAndUpdate(
+    { userId },
+    { $setOnInsert: { userId, referralCode: makeReferralCode(userId) } },
+    { new: true, upsert: true, setDefaultsOnInsert: true },
+  );
+  if (session) query.session(session);
+  return query;
 }
 
 async function addLedgerEntry({ userId, type, points, idempotencyKey, orderId = null, relatedUserId = null, description = "", metadata = {} }) {
   const existing = await LoyaltyLedger.findOne({ idempotencyKey });
   if (existing) return { entry: existing, created: false };
-  const wallet = await getOrCreateWallet(userId);
-  const nextBalance = wallet.balance + points;
-  if (nextBalance < 0) throw new AppError(409, "INSUFFICIENT_POINTS", "You do not have enough FreshPoints");
+
+  const session = await mongoose.startSession();
   try {
-    const entry = await LoyaltyLedger.create({ userId, type, points, balanceAfter: nextBalance, orderId, relatedUserId, idempotencyKey, description, metadata });
-    wallet.balance = nextBalance;
-    if (points > 0) wallet.lifetimeEarned += points;
-    if (points < 0) wallet.lifetimeRedeemed += Math.abs(points);
-    await wallet.save();
-    return { entry, created: true };
-  } catch (error) {
-    if (error?.code === 11000) return { entry: await LoyaltyLedger.findOne({ idempotencyKey }), created: false };
-    throw error;
+    let entry;
+    let created = false;
+
+    await session.withTransaction(async () => {
+      const locked = await LoyaltyLedger.findOne({ idempotencyKey }).session(session);
+      if (locked) {
+        entry = locked;
+        return;
+      }
+
+      const wallet = await getOrCreateWallet(userId, session);
+      const balance = Number(wallet.balance || 0);
+      const nextBalance = balance + points;
+      if (nextBalance < 0) throw new AppError(409, "INSUFFICIENT_POINTS", "You do not have enough FreshPoints");
+
+      const rows = await LoyaltyLedger.create(
+        [{ userId, type, points, balanceAfter: nextBalance, orderId, relatedUserId, idempotencyKey, description, metadata }],
+        { session },
+      );
+      entry = rows[0];
+
+      const update = {
+        $set: { balance: nextBalance },
+      };
+      if (points > 0) update.$inc = { lifetimeEarned: points };
+      else if (points < 0) update.$inc = { lifetimeRedeemed: Math.abs(points) };
+
+      await LoyaltyWallet.updateOne({ _id: wallet._id }, update, { session });
+      created = true;
+    });
+
+    return { entry, created };
+  } finally {
+    await session.endSession();
   }
 }
 
@@ -56,6 +76,7 @@ export async function getLoyaltyOverviewService(userId) {
   const ledger = await LoyaltyLedger.find({ userId }).sort({ createdAt: -1 }).limit(50).lean();
   const referredCount = await LoyaltyWallet.countDocuments({ referredByUserId: userId });
   const successfulReferrals = await LoyaltyLedger.countDocuments({ userId, type: "REFERRAL_REWARD" });
+
   return {
     wallet,
     ledger,
@@ -68,14 +89,22 @@ export async function getLoyaltyOverviewService(userId) {
 export async function applyReferralCodeService(userId, code) {
   const wallet = await getOrCreateWallet(userId);
   if (wallet.referredByUserId) throw new AppError(409, "REFERRAL_ALREADY_APPLIED", "A referral code is already linked to your account");
-  const delivered = await Order.exists({ userId, orderStatus: "DELIVERED", isDeleted: false });
-  if (delivered) throw new AppError(409, "REFERRAL_TOO_LATE", "Referral code must be applied before your first delivered order");
+
+  if (await Order.exists({ userId, orderStatus: "DELIVERED", isDeleted: false })) {
+    throw new AppError(409, "REFERRAL_TOO_LATE", "Referral code must be applied before your first delivered order");
+  }
+
   const referrer = await LoyaltyWallet.findOne({ referralCode: String(code || "").trim().toUpperCase() });
   if (!referrer) throw new AppError(404, "REFERRAL_NOT_FOUND", "Referral code not found");
   if (String(referrer.userId) === String(userId)) throw new AppError(409, "SELF_REFERRAL", "You cannot use your own referral code");
-  wallet.referredByUserId = referrer.userId;
-  wallet.referralAppliedAt = new Date();
-  await wallet.save();
+
+  const updated = await LoyaltyWallet.findOneAndUpdate(
+    { _id: wallet._id, referredByUserId: null },
+    { $set: { referredByUserId: referrer.userId, referralAppliedAt: new Date() } },
+    { new: true },
+  );
+
+  if (!updated) throw new AppError(409, "REFERRAL_ALREADY_APPLIED", "A referral code is already linked to your account");
   return { referralCode: referrer.referralCode, applied: true };
 }
 
@@ -86,64 +115,144 @@ export async function calculateRedemptionService(userId, subtotal, requestedPoin
   const capPoints = Math.floor(capRupees * LOYALTY.POINTS_PER_RUPEE_REDEEMED);
   const maxRedeemablePoints = Math.max(0, Math.min(wallet.balance, capPoints));
   const requested = Math.max(0, Math.floor(Number(requestedPoints) || 0));
-  if (requested > 0 && requested < LOYALTY.MIN_REDEMPTION_POINTS) throw new AppError(422, "MIN_REDEMPTION", `Redeem at least ${LOYALTY.MIN_REDEMPTION_POINTS} FreshPoints`);
+
+  if (requested > 0 && requested < LOYALTY.MIN_REDEMPTION_POINTS) {
+    throw new AppError(422, "MIN_REDEMPTION", `Redeem at least ${LOYALTY.MIN_REDEMPTION_POINTS} FreshPoints`);
+  }
+
   const pointsToRedeem = Math.min(requested, maxRedeemablePoints);
-  return { balance: wallet.balance, maxRedeemablePoints, pointsToRedeem, discountRupees: Number((pointsToRedeem / LOYALTY.POINTS_PER_RUPEE_REDEEMED).toFixed(2)), capPercent: LOYALTY.MAX_REDEMPTION_PERCENT, minimumPoints: LOYALTY.MIN_REDEMPTION_POINTS };
+  return {
+    balance: wallet.balance,
+    maxRedeemablePoints,
+    pointsToRedeem,
+    discountRupees: Number((pointsToRedeem / LOYALTY.POINTS_PER_RUPEE_REDEEMED).toFixed(2)),
+    capPercent: LOYALTY.MAX_REDEMPTION_PERCENT,
+    minimumPoints: LOYALTY.MIN_REDEMPTION_POINTS,
+  };
 }
 
 export async function reserveOrderRedemptionService(userId, orderId, points) {
   const p = Math.max(0, Math.floor(Number(points) || 0));
   if (!p) return null;
-  return (await addLedgerEntry({ userId, type: "REDEEM", points: -p, orderId, idempotencyKey: `redeem:${orderId}`, description: `Redeemed ${p} FreshPoints on order` })).entry;
+  return (await addLedgerEntry({
+    userId,
+    type: "REDEEM",
+    points: -p,
+    orderId,
+    idempotencyKey: `redeem:${orderId}`,
+    description: `Redeemed ${p} FreshPoints on order`,
+  })).entry;
 }
 
 export async function refundOrderRedemptionService(order) {
   const points = Math.max(0, Number(order?.loyaltyPointsRedeemed) || 0);
   if (!points || !order?._id) return null;
-  const debit = await LoyaltyLedger.findOne({ idempotencyKey: `redeem:${order._id}` });
-  if (!debit) return null;
-  return (await addLedgerEntry({ userId: order.userId, type: "ADJUSTMENT", points, orderId: order._id, idempotencyKey: `redeem-refund:${order._id}`, description: `FreshPoints returned for cancelled order ${order.orderNumber}` })).entry;
+
+  if (!(await LoyaltyLedger.findOne({ idempotencyKey: `redeem:${order._id}` }))) return null;
+  return (await addLedgerEntry({
+    userId: order.userId,
+    type: "ADJUSTMENT",
+    points,
+    orderId: order._id,
+    idempotencyKey: `redeem-refund:${order._id}`,
+    description: `FreshPoints returned for cancelled order ${order.orderNumber}`,
+  })).entry;
 }
 
 export async function rewardDeliveredOrderService(orderOrId) {
   const order = typeof orderOrId === "object" && orderOrId?._id ? orderOrId : await Order.findById(orderOrId);
   if (!order || order.orderStatus !== "DELIVERED") return null;
+
   const eligibleSpend = Math.max(0, Number(order.subtotal || 0) - Number(order.couponDiscount || 0) - Number(order.loyaltyDiscount || 0));
   const basePoints = Math.floor(eligibleSpend / LOYALTY.RUPEES_PER_EARN_POINT);
+
   if (basePoints > 0) {
-    const result = await addLedgerEntry({ userId: order.userId, type: "EARN_ORDER", points: basePoints, orderId: order._id, idempotencyKey: `earn-order:${order._id}`, description: `Earned on delivered order ${order.orderNumber}`, metadata: { eligibleSpend } });
+    const result = await addLedgerEntry({
+      userId: order.userId,
+      type: "EARN_ORDER",
+      points: basePoints,
+      orderId: order._id,
+      idempotencyKey: `earn-order:${order._id}`,
+      description: `Earned on delivered order ${order.orderNumber}`,
+      metadata: { eligibleSpend },
+    });
     if (result.created) await safeNotify(order.userId, "FreshPoints earned 🎉", `You earned ${basePoints} FreshPoints on ${order.orderNumber}.`, order.userId, { orderId: order._id, points: basePoints });
   }
 
-  const priorDelivered = await Order.countDocuments({ userId: order.userId, orderStatus: "DELIVERED", _id: { $ne: order._id }, createdAt: { $lt: order.createdAt }, isDeleted: false });
+  const priorDelivered = await Order.countDocuments({
+    userId: order.userId,
+    orderStatus: "DELIVERED",
+    _id: { $ne: order._id },
+    createdAt: { $lt: order.createdAt },
+    isDeleted: false,
+  });
+
   if (priorDelivered === 1) {
-    await addLedgerEntry({ userId: order.userId, type: "BONUS_FIRST_REORDER", points: LOYALTY.FIRST_REORDER_BONUS, orderId: order._id, idempotencyKey: `first-reorder:${order.userId}`, description: "First reorder bonus" });
+    await addLedgerEntry({
+      userId: order.userId,
+      type: "BONUS_FIRST_REORDER",
+      points: LOYALTY.FIRST_REORDER_BONUS,
+      orderId: order._id,
+      idempotencyKey: `first-reorder:${order.userId}`,
+      description: "First reorder bonus",
+    });
   }
 
   if (priorDelivered === 0) {
     const wallet = await getOrCreateWallet(order.userId);
     if (wallet.referredByUserId) {
       const referrerId = wallet.referredByUserId;
-      const a = await addLedgerEntry({ userId: referrerId, type: "REFERRAL_REWARD", points: LOYALTY.REFERRER_REWARD, orderId: order._id, relatedUserId: order.userId, idempotencyKey: `referrer:${order.userId}`, description: "Successful referral reward" });
-      const b = await addLedgerEntry({ userId: order.userId, type: "REFERRED_FRIEND_REWARD", points: LOYALTY.REFERRED_FRIEND_REWARD, orderId: order._id, relatedUserId: referrerId, idempotencyKey: `referred-friend:${order.userId}`, description: "Welcome referral reward" });
+      const a = await addLedgerEntry({
+        userId: referrerId,
+        type: "REFERRAL_REWARD",
+        points: LOYALTY.REFERRER_REWARD,
+        orderId: order._id,
+        relatedUserId: order.userId,
+        idempotencyKey: `referrer:${order.userId}`,
+        description: "Successful referral reward",
+      });
+      const b = await addLedgerEntry({
+        userId: order.userId,
+        type: "REFERRED_FRIEND_REWARD",
+        points: LOYALTY.REFERRED_FRIEND_REWARD,
+        orderId: order._id,
+        relatedUserId: referrerId,
+        idempotencyKey: `referred-friend:${order.userId}`,
+        description: "Welcome referral reward",
+      });
+
       if (a.created) await safeNotify(referrerId, "Referral reward unlocked 🎁", `Your friend completed their first delivery. ${LOYALTY.REFERRER_REWARD} FreshPoints were added.`, referrerId, { points: LOYALTY.REFERRER_REWARD });
       if (b.created) await safeNotify(order.userId, "Referral reward unlocked 🎁", `${LOYALTY.REFERRED_FRIEND_REWARD} FreshPoints were added after your first delivered order.`, order.userId, { points: LOYALTY.REFERRED_FRIEND_REWARD });
     }
   }
+
   return true;
 }
 
 async function safeNotify(userId, title, message, createdBy, metadata) {
-  try { await sendNotificationService({ userId, title, message, type: "LOYALTY_REWARD", channel: "IN_APP", metadata, createdBy }); } catch (e) { console.error("Loyalty notification failed:", e.message); }
+  try {
+    await sendNotificationService({ userId, title, message, type: "LOYALTY_REWARD", channel: "IN_APP", metadata, createdBy });
+  } catch (error) {
+    console.error("Loyalty notification failed:", error.message);
+  }
 }
 
 export async function getAdminLoyaltySummaryService() {
   const [wallets, ledgerAgg, referrals, topWallets] = await Promise.all([
     LoyaltyWallet.countDocuments(),
-    LoyaltyLedger.aggregate([{ $group: { _id: null, earned: { $sum: { $cond: [{ $gt: ["$points", 0] }, "$points", 0] } }, redeemed: { $sum: { $cond: [{ $lt: ["$points", 0] }, { $abs: "$points" }, 0] } } } }]),
+    LoyaltyLedger.aggregate([
+      {
+        $group: {
+          _id: null,
+          earned: { $sum: { $cond: [{ $gt: ["$points", 0] }, "$points", 0] } },
+          redeemed: { $sum: { $cond: [{ $lt: ["$points", 0] }, { $abs: "$points" }, 0] } },
+        },
+      },
+    ]),
     LoyaltyLedger.countDocuments({ type: "REFERRAL_REWARD" }),
     LoyaltyWallet.find().sort({ lifetimeEarned: -1 }).limit(10).populate("userId", "name email phone").lean(),
   ]);
+
   const agg = ledgerAgg[0] || { earned: 0, redeemed: 0 };
   return { wallets, pointsIssued: agg.earned, pointsRedeemed: agg.redeemed, successfulReferrals: referrals, topWallets };
 }

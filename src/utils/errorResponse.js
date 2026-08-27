@@ -46,10 +46,7 @@ export const normalizeError = (error) => {
       422,
       "VALIDATION_ERROR",
       "Validation failed",
-      Object.values(error.errors || {}).map((item) => ({
-        path: item.path,
-        message: item.message,
-      }))
+      Object.values(error.errors || {}).map((item) => ({ path: item.path, message: item.message })),
     );
   }
 
@@ -59,21 +56,28 @@ export const normalizeError = (error) => {
 
   const message = error?.message || "Internal server error";
   const rule = rules.find(([pattern]) => pattern.test(message));
-
   if (rule) {
     const [statusCode, code] = rule[1];
     return new AppError(statusCode, code, message);
   }
 
-  return new AppError(500, "INTERNAL_SERVER_ERROR", "Internal server error", process.env.NODE_ENV === "production" ? [] : [message]);
+  return new AppError(
+    500,
+    "INTERNAL_SERVER_ERROR",
+    "Internal server error",
+    process.env.NODE_ENV === "production" ? [] : [message],
+  );
 };
 
 export const sendError = (res, error) => {
   const normalized = normalizeError(error);
+  const requestId = res.req?.get?.("x-request-id") || null;
+
   return res.status(normalized.statusCode).json({
     success: false,
     message: normalized.message,
     code: normalized.code,
+    requestId,
     data: null,
     errors: normalized.details || [],
   });
