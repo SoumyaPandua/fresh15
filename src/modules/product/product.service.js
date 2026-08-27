@@ -12,6 +12,12 @@ const getInventorySnapshot = async (productIds) => {
   return new Map(rows.map((row) => [String(row.productId), row]));
 };
 
+const imageFolder = (category) => {
+  const slug = String(category?.slug || category?.name || "uncategorized")
+    .trim().replace(/[^a-zA-Z0-9-]+/g, "-").replace(/^-+|-+$/g, "") || "uncategorized";
+  return `fresh15/products/${slug}`;
+};
+
 export const getAllProductsService = async (query = {}) => {
   const filter = { isDeleted: false };
   const categoryFilter = query.categoryId || query.category;
@@ -27,7 +33,6 @@ export const getAllProductsService = async (query = {}) => {
       isActive: true,
       $or: [{ name: { $regex: escaped, $options: "i" } }, { slug: { $regex: escaped, $options: "i" } }],
     }).select("_id").lean();
-
     filter.$or = [
       { $text: { $search: search } },
       ...(categoryMatches.length ? [{ categoryId: { $in: categoryMatches.map((x) => x._id) } }] : []),
@@ -35,7 +40,8 @@ export const getAllProductsService = async (query = {}) => {
   }
 
   const pagination = parsePagination(query);
-  const base = Product.find(filter).populate("categoryId", "name").sort({ createdAt: -1 });
+  const base = Product.find(filter).populate("categoryId", "name slug").sort({ createdAt: -1 });
+
   if (!pagination.hasPagination) {
     const products = await base.lean();
     const inventory = await getInventorySnapshot(products.map((p) => p._id));
@@ -50,7 +56,6 @@ export const getAllProductsService = async (query = {}) => {
     Product.countDocuments(filter),
   ]);
   const inventory = await getInventorySnapshot(products.map((p) => p._id));
-
   return {
     items: products.map((product) => ({
       ...product,
@@ -61,9 +66,8 @@ export const getAllProductsService = async (query = {}) => {
 };
 
 export const getProductByIdService = async (id) => {
-  const product = await Product.findOne({ _id: id, isDeleted: false }).populate("categoryId", "name image").lean();
+  const product = await Product.findOne({ _id: id, isDeleted: false }).populate("categoryId", "name image slug").lean();
   if (!product) throw new AppError(404, "PRODUCT_NOT_FOUND", "Product not found");
-
   const inventory = await Inventory.findOne({ productId: id }).select("availableStock currentStock").lean();
   return { ...product, stock: Number(inventory?.availableStock ?? 0) };
 };
@@ -74,13 +78,8 @@ export const createProductService = async (userId, body, files) => {
 
   const sku = String(body.sku).trim().toUpperCase();
   const slug = slugify(body.name, { lower: true, strict: true });
-
-  if (await Product.findOne({ slug, isDeleted: false })) {
-    throw new AppError(409, "PRODUCT_ALREADY_EXISTS", "Product already exists");
-  }
-  if (await Product.findOne({ sku, isDeleted: false })) {
-    throw new AppError(409, "SKU_ALREADY_EXISTS", "SKU already exists");
-  }
+  if (await Product.findOne({ slug, isDeleted: false })) throw new AppError(409, "PRODUCT_ALREADY_EXISTS", "Product already exists");
+  if (await Product.findOne({ sku, isDeleted: false })) throw new AppError(409, "SKU_ALREADY_EXISTS", "SKU already exists");
 
   const mrp = Number(body.mrp);
   const sellingPrice = Number(body.sellingPrice);
@@ -88,9 +87,7 @@ export const createProductService = async (userId, body, files) => {
 
   const initialStock = Math.max(0, Number(body.stock) || 0);
   const images = [];
-  for (const file of files || []) {
-    images.push((await uploadImage(file.buffer, "fresh15/products")).secure_url);
-  }
+  for (const file of files || []) images.push((await uploadImage(file.buffer, imageFolder(category))).secure_url);
 
   const product = await Product.create({
     categoryId: body.categoryId,
@@ -129,27 +126,26 @@ export const updateProductService = async (id, userId, body, files) => {
 
   const previousPrice = Number(product.sellingPrice);
   const inventory = await Inventory.findOne({ productId: id });
+  let category;
 
   if (body.categoryId) {
-    const category = await Category.findOne({ _id: body.categoryId, isDeleted: false, isActive: true });
+    category = await Category.findOne({ _id: body.categoryId, isDeleted: false, isActive: true });
     if (!category) throw new AppError(404, "CATEGORY_NOT_FOUND", "Category not found");
     product.categoryId = body.categoryId;
+  } else {
+    category = await Category.findById(product.categoryId).select("name slug").lean();
   }
 
   if (body.name && body.name !== product.name) {
     const slug = slugify(body.name, { lower: true, strict: true });
-    if (await Product.findOne({ slug, isDeleted: false, _id: { $ne: id } })) {
-      throw new AppError(409, "PRODUCT_ALREADY_EXISTS", "Product name already exists");
-    }
+    if (await Product.findOne({ slug, isDeleted: false, _id: { $ne: id } })) throw new AppError(409, "PRODUCT_ALREADY_EXISTS", "Product name already exists");
     product.name = body.name;
     product.slug = slug;
   }
 
   if (body.sku && body.sku.toUpperCase() !== product.sku) {
     const sku = body.sku.toUpperCase();
-    if (await Product.findOne({ sku, isDeleted: false, _id: { $ne: id } })) {
-      throw new AppError(409, "SKU_ALREADY_EXISTS", "SKU already exists");
-    }
+    if (await Product.findOne({ sku, isDeleted: false, _id: { $ne: id } })) throw new AppError(409, "SKU_ALREADY_EXISTS", "SKU already exists");
     product.sku = sku;
   }
 
@@ -159,7 +155,7 @@ export const updateProductService = async (id, userId, body, files) => {
 
   if (files?.length) {
     product.images = [];
-    for (const file of files) product.images.push((await uploadImage(file.buffer, "fresh15/products")).secure_url);
+    for (const file of files) product.images.push((await uploadImage(file.buffer, imageFolder(category))).secure_url);
   }
 
   if (body.description !== undefined) product.description = body.description;
@@ -176,12 +172,8 @@ export const updateProductService = async (id, userId, body, files) => {
     if (!inventory) throw new AppError(409, "INVENTORY_NOT_FOUND", "Inventory not found");
     const previousCurrentStock = Number(inventory.currentStock || 0);
     const nextStock = Number(body.stock);
-    if (!Number.isInteger(nextStock) || nextStock < 0) {
-      throw new AppError(422, "INVALID_STOCK", "Stock must be a non-negative integer");
-    }
-    if (nextStock < Number(inventory.reservedStock)) {
-      throw new AppError(409, "STOCK_RESERVATION_CONFLICT", `Stock cannot be reduced below reserved quantity (${inventory.reservedStock})`);
-    }
+    if (!Number.isInteger(nextStock) || nextStock < 0) throw new AppError(422, "INVALID_STOCK", "Stock must be a non-negative integer");
+    if (nextStock < Number(inventory.reservedStock)) throw new AppError(409, "STOCK_RESERVATION_CONFLICT", `Stock cannot be reduced below reserved quantity (${inventory.reservedStock})`);
 
     const previousAvailable = Number(inventory.availableStock ?? 0);
     const reserved = Number(inventory.reservedStock || 0);
@@ -197,21 +189,10 @@ export const updateProductService = async (id, userId, body, files) => {
   await product.save();
 
   try {
-    await processPriceDropAlertService({
-      productId: product._id,
-      previousPrice,
-      currentPrice: Number(product.sellingPrice),
-    });
-
+    await processPriceDropAlertService({ productId: product._id, previousPrice, currentPrice: Number(product.sellingPrice) });
     if (body.stock !== undefined && inventory) {
       const available = Number(inventory.availableStock ?? 0);
-      if (available > 0) {
-        await processBackInStockAlertService({
-          productId: product._id,
-          previousAvailableStock: 0,
-          currentAvailableStock: available,
-        });
-      }
+      if (available > 0) await processBackInStockAlertService({ productId: product._id, previousAvailableStock: 0, currentAvailableStock: available });
     }
   } catch (error) {
     console.error("Product alert processing failed:", error.message);

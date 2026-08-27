@@ -8,22 +8,26 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-export const uploadImage = (buffer, folder) => {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      {
-        folder,
-        resource_type: "image",
-      },
-      (error, result) => {
-        if (error) return reject(error);
-
-        resolve(result);
-      }
-    );
-
-    streamifier.createReadStream(buffer).pipe(stream);
-  });
+const normalizeFolder = (folder) => {
+  const value = String(folder || "general").replace(/^\/+|\/+$/g, "");
+  return value.startsWith("fresh15/") ? value : `fresh15/${value}`;
 };
+
+export const uploadImage = (buffer, folder) => new Promise((resolve, reject) => {
+  const assetFolder = normalizeFolder(folder);
+  const stream = cloudinary.uploader.upload_stream(
+    {
+      folder: assetFolder,
+      resource_type: "image",
+      use_filename: false,
+      unique_filename: true,
+    },
+    (error, result) => {
+      if (error) return reject(error);
+      resolve(result);
+    },
+  );
+  streamifier.createReadStream(buffer).pipe(stream);
+});
 
 export default cloudinary;

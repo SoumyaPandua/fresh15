@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   register,
+  registerPartner,
   verifyOtp,
   login,
   resendOtp,
@@ -8,7 +9,7 @@ import {
   resetPassword,
   me,
 } from "./auth.controller.js";
-import { registerValidation } from "./auth.validation.js";
+import { registerValidation, partnerRegisterValidation } from "./auth.validation.js";
 import authMiddleware from "../../middleware/auth.middleware.js";
 import { redisDualRateLimit } from "../../middleware/rateLimit.middleware.js";
 
@@ -16,6 +17,7 @@ const router = Router();
 const emailKey = (req) => String(req.body?.email || "").trim().toLowerCase();
 
 router.post("/register", redisDualRateLimit({ name: "register", max: 5, windowSeconds: 600, accountKeyFn: emailKey }), registerValidation, register);
+router.post("/partner-register", redisDualRateLimit({ name: "partner-register", max: 5, windowSeconds: 600, accountKeyFn: emailKey }), partnerRegisterValidation, registerPartner);
 router.post("/verify-otp", redisDualRateLimit({ name: "verify-otp", max: 10, windowSeconds: 600, accountKeyFn: emailKey }), verifyOtp);
 router.post("/login", redisDualRateLimit({ name: "login", max: 10, windowSeconds: 60, accountKeyFn: emailKey }), login);
 router.post("/resend-otp", redisDualRateLimit({ name: "resend-otp", max: 5, windowSeconds: 600, accountKeyFn: emailKey }), resendOtp);
