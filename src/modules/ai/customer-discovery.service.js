@@ -40,7 +40,7 @@ const slugifyFallback = (name) =>
   normalize(name).replace(/\s+/g, "-").replace(/-+/g, "-");
 
 const productUrl = (product) =>
-  `/products/${encodeURIComponent(product.slug || slugifyFallback(product.name))}`;
+  `/product/${encodeURIComponent(product.slug || slugifyFallback(product.name))}`;
 
 const aliasesForToken = (token) => {
   const aliases = new Set([token]);
