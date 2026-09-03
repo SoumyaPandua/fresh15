@@ -16,31 +16,16 @@ const substitutionPreferenceSchema = new mongoose.Schema(
       default: "CALL_ME",
       required: true,
     },
-
     preferredReplacementProductId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Product",
       default: null,
     },
-
-    preferredReplacementProductName: {
-      type: String,
-      default: "",
-    },
-
-    preferredReplacementSku: {
-      type: String,
-      default: "",
-    },
-
-    preferredReplacementImage: {
-      type: String,
-      default: null,
-    },
+    preferredReplacementProductName: { type: String, default: "" },
+    preferredReplacementSku: { type: String, default: "" },
+    preferredReplacementImage: { type: String, default: null },
   },
-  {
-    _id: false,
-  }
+  { _id: false },
 );
 
 const orderItemSchema = new mongoose.Schema(
@@ -52,18 +37,19 @@ const orderItemSchema = new mongoose.Schema(
     price: { type: Number, required: true, min: 0 },
     quantity: { type: Number, required: true, min: 1 },
     subtotal: { type: Number, required: true, min: 0 },
-
     substitutionPreference: {
       type: substitutionPreferenceSchema,
       default: () => ({ type: "CALL_ME" }),
     },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const orderSchema = new mongoose.Schema(
   {
     orderNumber: { type: String, required: true, unique: true, index: true },
+    checkoutIdempotencyKey: { type: String, default: null, trim: true },
+    checkoutRequestHash: { type: String, default: null },
     userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
     addressId: { type: mongoose.Schema.Types.ObjectId, ref: "Address", required: true },
     zoneId: { type: mongoose.Schema.Types.ObjectId, ref: "DeliveryZone", default: null, index: true },
@@ -96,6 +82,8 @@ const orderSchema = new mongoose.Schema(
     stockReserved: { type: Boolean, default: false },
     stockFinalized: { type: Boolean, default: false },
     couponUsageRecorded: { type: Boolean, default: false },
+    refundedAmount: { type: Number, default: 0, min: 0 },
+    refundReservedAmount: { type: Number, default: 0, min: 0 },
     isDeleted: { type: Boolean, default: false, index: true },
     deletedAt: { type: Date, default: null },
     deletedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
@@ -103,15 +91,16 @@ const orderSchema = new mongoose.Schema(
     createdBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true },
     updatedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 orderSchema.index({ userId: 1, createdAt: -1 });
 orderSchema.index({ orderStatus: 1, createdAt: -1 });
+orderSchema.index(
+  { userId: 1, checkoutIdempotencyKey: 1 },
+  { unique: true, partialFilterExpression: { checkoutIdempotencyKey: { $type: "string" } } },
+);
 
-// Never allow a COD order to become DELIVERED while its payment is still pending.
-// This protects every save path, including the delivery module which updates
-// orderStatus directly instead of going through updateOrderStatusService.
 orderSchema.pre("save", function () {
   if (
     this.isModified("orderStatus") &&
@@ -122,7 +111,7 @@ orderSchema.pre("save", function () {
     throw new AppError(
       409,
       "COD_PAYMENT_REQUIRED",
-      "COD payment must be collected before the order can be delivered"
+      "COD payment must be collected before the order can be delivered",
     );
   }
 });

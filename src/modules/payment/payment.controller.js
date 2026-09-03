@@ -1,3 +1,5 @@
+import Payment from "./payment.model.js";
+import Order from "../order/order.model.js";
 import sendResponse from "../../utils/sendResponse.js";
 import { sendError } from "../../utils/errorResponse.js";
 import { verifyPaymentAuthoritatively } from "./payment-authoritative.service.js";
@@ -11,8 +13,26 @@ import {
 } from "./payment.service.js";
 
 export const createPaymentOrder = async (req, res) => {
-  try { return sendResponse(res, 201, true, "Payment order created successfully", await createPaymentOrderService(req.user._id, req.body.orderId)); }
-  catch (error) { return sendError(res, error); }
+  try {
+    const orderId = req.body.orderId;
+    const order = await Order.findOne({ _id: orderId, userId: req.user._id, isDeleted: false });
+    if (!order) return sendResponse(res, 404, false, "Order not found", null);
+    const existing = await Payment.findOne({ orderId: order._id, userId: req.user._id });
+    const expiresAt = existing?.expiresAt ? new Date(existing.expiresAt).getTime() : 0;
+    const reusable = existing?.razorpayOrderId && ["CREATED", "PENDING"].includes(existing.status) && (!expiresAt || expiresAt > Date.now()) && Number(existing.amount) === Number(order.grandTotal);
+    if (reusable) {
+      return sendResponse(res, 200, true, "Existing payment order returned", {
+        key: process.env.RAZORPAY_KEY_ID,
+        orderId: existing.razorpayOrderId,
+        amount: Math.round(Number(existing.amount) * 100),
+        currency: existing.currency || "INR",
+        receipt: order.orderNumber,
+      });
+    }
+    return sendResponse(res, 201, true, "Payment order created successfully", await createPaymentOrderService(req.user._id, orderId));
+  } catch (error) {
+    return sendError(res, error);
+  }
 };
 
 export const verifyPayment = async (req, res) => {
@@ -44,5 +64,7 @@ export const reconcilePayment = async (req, res) => {
   try {
     const data = await reconcilePendingOnlinePaymentService(req.user._id, req.body.orderId);
     return sendResponse(res, 200, true, data.paymentStatus === "PAID" ? "Payment recovered successfully" : "Payment status checked", data);
-  } catch (error) { return sendError(res, error); }
+  } catch (error) {
+    return sendError(res, error);
+  }
 };
