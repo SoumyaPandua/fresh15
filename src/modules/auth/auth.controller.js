@@ -12,18 +12,23 @@ import sendResponse from "../../utils/sendResponse.js";
 import { sendError } from "../../utils/errorResponse.js";
 import { writeAuditLog } from "../audit/audit.service.js";
 
+const safeAttemptDetails = (req, error) => ({
+  portal: req.body?.portal || null,
+  code: error?.code || "UNKNOWN",
+});
+
 export const register = async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      void writeAuditLog({ action: "REGISTER_VALIDATION_FAILED", resourceType: "User", details: { email: req.body?.email || null }, outcome: "FAILURE", statusCode: 422 });
+      void writeAuditLog({ action: "REGISTER_VALIDATION_FAILED", resourceType: "User", details: { validationErrorCount: errors.array().length }, outcome: "FAILURE", statusCode: 422 });
       return sendResponse(res, 422, false, "Validation failed", null, "VALIDATION_ERROR", errors.array());
     }
     const user = await registerService(req.body);
     await writeAuditLog({ actorId: user._id, action: "USER_REGISTERED", resourceType: "User", resourceId: user._id, details: { portal: user.portal }, outcome: "SUCCESS", statusCode: 201 });
     return sendResponse(res, 201, true, "Registration successful. OTP sent to email", { id: user._id, name: user.name, email: user.email });
   } catch (error) {
-    void writeAuditLog({ action: "REGISTER_FAILED", resourceType: "User", details: { email: req.body?.email || null, reason: error?.code || error?.message }, outcome: "FAILURE", statusCode: error?.statusCode || 500 });
+    void writeAuditLog({ action: "REGISTER_FAILED", resourceType: "User", details: { code: error?.code || "UNKNOWN" }, outcome: "FAILURE", statusCode: error?.statusCode || 500 });
     return sendError(res, error);
   }
 };
@@ -43,10 +48,10 @@ export const registerPartner = async (req, res) => {
 export const verifyOtp = async (req, res) => {
   try {
     const data = await verifyOtpService(req.body);
-    await writeAuditLog({ action: "OTP_VERIFIED", resourceType: "Authentication", details: { purpose: req.body?.purpose || null, email: req.body?.email || null }, outcome: "SUCCESS", statusCode: 200 });
+    await writeAuditLog({ action: "OTP_VERIFIED", resourceType: "Authentication", details: { purpose: req.body?.purpose || null }, outcome: "SUCCESS", statusCode: 200 });
     return sendResponse(res, 200, true, "OTP verified successfully", data);
   } catch (error) {
-    void writeAuditLog({ action: "OTP_VERIFICATION_FAILED", resourceType: "Authentication", details: { purpose: req.body?.purpose || null, email: req.body?.email || null, reason: error?.code || error?.message }, outcome: "FAILURE", statusCode: error?.statusCode || 500 });
+    void writeAuditLog({ action: "OTP_VERIFICATION_FAILED", resourceType: "Authentication", details: { purpose: req.body?.purpose || null, code: error?.code || "UNKNOWN" }, outcome: "FAILURE", statusCode: error?.statusCode || 500 });
     return sendError(res, error);
   }
 };
@@ -57,7 +62,7 @@ export const login = async (req, res) => {
     await writeAuditLog({ actorId: result.user._id, action: "LOGIN_SUCCESS", resourceType: "Authentication", resourceId: result.user._id, details: { portal: result.user.portal }, outcome: "SUCCESS", statusCode: 200 });
     return sendResponse(res, 200, true, "Login successful", result);
   } catch (error) {
-    void writeAuditLog({ action: "LOGIN_FAILED", resourceType: "Authentication", details: { email: req.body?.email || null, portal: req.body?.portal || null, reason: error?.code || error?.message }, outcome: "FAILURE", statusCode: error?.statusCode || 500 });
+    void writeAuditLog({ action: "LOGIN_FAILED", resourceType: "Authentication", details: safeAttemptDetails(req, error), outcome: "FAILURE", statusCode: error?.statusCode || 500, severity: error?.statusCode === 429 ? "WARNING" : "INFO" });
     return sendError(res, error);
   }
 };
@@ -73,8 +78,8 @@ export const resendOtp = async (req, res) => {
 
 export const forgotPassword = async (req, res) => {
   try {
-    await forgotPasswordService(req.body.email);
-    return sendResponse(res, 200, true, "OTP sent successfully");
+    const message = await forgotPasswordService(req.body.email);
+    return sendResponse(res, 200, true, message);
   } catch (error) {
     return sendError(res, error);
   }

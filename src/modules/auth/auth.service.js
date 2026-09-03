@@ -12,9 +12,31 @@ import { createOrUpdatePartnerApplicationService } from "../partnerApplication/p
 import PartnerApplication from "../partnerApplication/partnerApplication.model.js";
 
 const RESET_TTL = 600;
+const LOGIN_FAILURE_WINDOW = 600;
+const LOGIN_PROGRESSIVE_DELAY_MAX = 30;
+const emailKey = (email) => crypto.createHash("sha256").update(String(email || "").trim().toLowerCase()).digest("hex");
+
+const enforceLoginFailureBackoff = async (email) => {
+  const key = `auth:login:fail:${emailKey(email)}`;
+  const count = Number(await redis.get(key) || 0);
+  if (count < 5) return;
+  const delay = Math.min(LOGIN_PROGRESSIVE_DELAY_MAX, 2 ** Math.min(5, count - 5));
+  throw new AppError(429, "LOGIN_RATE_LIMITED", `Too many failed login attempts. Please try again in ${delay} seconds.`);
+};
+
+const recordLoginFailure = async (email) => {
+  const key = `auth:login:fail:${emailKey(email)}`;
+  const count = await redis.incr(key);
+  if (count === 1) await redis.expire(key, LOGIN_FAILURE_WINDOW);
+  return count;
+};
+
+const clearLoginFailures = async (email) => {
+  await redis.del(`auth:login:fail:${emailKey(email)}`);
+};
 
 export const registerService = async ({ name, email, phone, password }) => {
-  email = email.toLowerCase();
+  email = email.toLowerCase().trim();
   if (await User.findOne({ email })) throw new AppError(409, "EMAIL_ALREADY_REGISTERED", "Email already registered");
   const user = await User.create({ name, email, phone, password: await bcrypt.hash(password, 10), portal: "customer", role: "CUSTOMER" });
   const otp = generateOtp();
@@ -33,12 +55,13 @@ export const registerPartnerService = async ({ name, email, phone, password, veh
 };
 
 export const verifyOtpService = async ({ email, otp, purpose }) => {
-  email = email.toLowerCase();
+  email = email.toLowerCase().trim();
   const key = `otp:${purpose}:${email}`;
   const savedOtp = await redis.get(key);
   if (!savedOtp) throw new AppError(422, "OTP_EXPIRED", "OTP expired");
-  const attemptKey = `otp:attempts:${purpose}:${email}`;
-  if (Number(await redis.get(attemptKey) || 0) >= 5) throw new AppError(429, "OTP_RATE_LIMITED", "Too many OTP attempts. Please request a new OTP.");
+  const attemptKey = `otp:attempts:${purpose}:${emailKey(email)}`;
+  const attempts = Number(await redis.get(attemptKey) || 0);
+  if (attempts >= 5) throw new AppError(429, "OTP_RATE_LIMITED", "Too many OTP attempts. Please request a new OTP.");
   if (String(savedOtp) !== String(otp)) {
     const next = await redis.incr(attemptKey);
     if (next === 1) await redis.expire(attemptKey, RESET_TTL);
@@ -69,9 +92,13 @@ export const verifyOtpService = async ({ email, otp, purpose }) => {
 };
 
 export const loginService = async ({ email, password, portal }) => {
-  email = email.toLowerCase();
+  email = email.toLowerCase().trim();
+  await enforceLoginFailureBackoff(email);
   const user = await User.findOne({ email });
-  if (!user) throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
+  if (!user) {
+    await recordLoginFailure(email);
+    throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
+  }
   if (user.portal !== portal) throw new AppError(403, "FORBIDDEN", "Unauthorized portal");
   if (!user.isEmailVerified) throw new AppError(403, "EMAIL_NOT_VERIFIED", "Please verify your email");
   if (!user.isActive) {
@@ -82,12 +109,16 @@ export const loginService = async ({ email, password, portal }) => {
     }
     throw new AppError(403, "ACCOUNT_DISABLED", "Account is disabled");
   }
-  if (!(await bcrypt.compare(password, user.password))) throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
+  if (!(await bcrypt.compare(password, user.password))) {
+    await recordLoginFailure(email);
+    throw new AppError(401, "INVALID_CREDENTIALS", "Invalid email or password");
+  }
+  await clearLoginFailures(email);
   return { token: generateToken(user._id), user };
 };
 
 export const resendOtpService = async (email) => {
-  email = email.toLowerCase();
+  email = email.toLowerCase().trim();
   const user = await User.findOne({ email });
   if (!user) throw new AppError(404, "USER_NOT_FOUND", "User not found");
   if (user.isEmailVerified) throw new AppError(409, "EMAIL_ALREADY_VERIFIED", "Email already verified");
@@ -97,7 +128,7 @@ export const resendOtpService = async (email) => {
 };
 
 export const forgotPasswordService = async (email) => {
-  email = email.toLowerCase();
+  email = email.toLowerCase().trim();
   const user = await User.findOne({ email });
   if (user) {
     const otp = generateOtp();

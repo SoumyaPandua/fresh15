@@ -1,23 +1,34 @@
 import Audit from "./audit.model.js";
 import { getAuditContext, markAuditWritten } from "./audit.context.js";
 
-const SECRET_KEYS = /^(password|token|authorization|cookie|otp|secret|apikey|api_key|razorpay_signature|resettoken|reset_token)$/i;
+const SENSITIVE_KEYS = /^(password|pass|pwd|token|access.?token|refresh.?token|authorization|cookie|set.?cookie|otp|secret|api.?key|apikey|private.?key|client.?secret|reset.?token|reset.?jti|razorpay.?signature|signature|cvv|cvc|card.?number|upi.?pin|bank.?account|account.?number|security.?answer)$/i;
+const PII_KEYS = /^(email|phone|mobile|full.?name|first.?name|last.?name|address|addressLine1|addressLine2|street|pincode|postal.?code|vehicle.?registration.?number|registration.?number)$/i;
+const SECRET_VALUE = /^(bearer\s+|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$)/i;
 
-const sanitizeDetails = (value) => {
-  if (!value || typeof value !== "object") return value;
+const cleanString = (value, max = 2000) => String(value)
+  .replace(/[\u0000-\u001f\u007f]/g, " ")
+  .slice(0, max);
 
+export const sanitizeDetails = (value) => {
   const seen = new WeakSet();
   const sanitize = (current, depth = 0) => {
     if (depth > 8) return "[TRUNCATED]";
-    if (typeof current === "string") return current.length > 2000 ? current.slice(0, 2000) : current;
-    if (!current || typeof current !== "object") return current;
+    if (typeof current === "string") {
+      const cleaned = cleanString(current);
+      return SECRET_VALUE.test(cleaned) ? "[REDACTED]" : cleaned;
+    }
+    if (typeof current === "number" || typeof current === "boolean" || current === null) return current;
+    if (typeof current !== "object") return "[REDACTED]";
     if (seen.has(current)) return "[CIRCULAR]";
     seen.add(current);
 
-    if (Array.isArray(current)) return current.map((item) => sanitize(item, depth + 1));
+    if (Array.isArray(current)) return current.slice(0, 50).map((item) => sanitize(item, depth + 1));
 
     return Object.fromEntries(
-      Object.entries(current).map(([key, item]) => [key, SECRET_KEYS.test(key) ? "[REDACTED]" : sanitize(item, depth + 1)]),
+      Object.entries(current).slice(0, 100).map(([key, item]) => {
+        if (SENSITIVE_KEYS.test(key) || PII_KEYS.test(key)) return [key, "[REDACTED]"];
+        return [cleanString(key, 120), sanitize(item, depth + 1)];
+      }),
     );
   };
 
@@ -27,6 +38,8 @@ const sanitizeDetails = (value) => {
     return {};
   }
 };
+
+const safePath = (value) => String(value || "/").split("?")[0].slice(0, 500);
 
 export const writeAuditLog = async ({
   actorId = null,
@@ -44,19 +57,19 @@ export const writeAuditLog = async ({
     const log = await Audit.create({
       actorId: actorId || null,
       actorRole: context?.req?.user?.role ?? null,
-      action,
-      resourceType,
+      action: cleanString(action || "UNKNOWN", 120),
+      resourceType: cleanString(resourceType || "Resource", 120),
       resourceId: resourceId || null,
       details: sanitizeDetails(details),
-      requestId: context?.requestId ?? null,
-      ipAddress: context?.ipAddress ?? null,
-      userAgent: context?.userAgent ?? null,
-      method: context?.method ?? null,
-      path: context?.path ?? null,
+      requestId: cleanString(context?.requestId || "", 128) || null,
+      ipAddress: context?.ipAddress || null,
+      userAgent: context?.userAgent || null,
+      method: cleanString(context?.method || "", 16) || null,
+      path: safePath(context?.path),
       statusCode: statusCode ?? null,
       outcome: outcome ?? (statusCode != null ? (statusCode < 400 ? "SUCCESS" : "FAILURE") : "UNKNOWN"),
       severity,
-      source,
+      source: cleanString(source || "api", 32),
       geo: context?.geo ?? {},
     });
     markAuditWritten();
@@ -79,9 +92,9 @@ export const getAdminAuditLogsService = async ({
   const safeLimit = Math.min(200, Math.max(1, Number(limit) || 100));
   const query = {};
 
-  if (action) query.action = action;
-  if (resourceType) query.resourceType = resourceType;
-  if (ip) query.ipAddress = { $regex: ip.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
+  if (action) query.action = cleanString(action, 120);
+  if (resourceType) query.resourceType = cleanString(resourceType, 120);
+  if (ip) query.ipAddress = { $regex: String(ip).trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" };
 
   const [logs, total] = await Promise.all([
     Audit.find(query).populate("actorId", "name email role").sort({ createdAt: -1 }).skip((safePage - 1) * safeLimit).limit(safeLimit).lean(),
