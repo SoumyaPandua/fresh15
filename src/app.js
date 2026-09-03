@@ -6,11 +6,16 @@ import cookieParser from "cookie-parser";
 import routes from "./routes/index.js";
 import { errorHandler } from "./utils/errorResponse.js";
 import auditContextMiddleware from "./middleware/audit-context.middleware.js";
+import requestContextMiddleware from "./middleware/request-context.middleware.js";
+import metricsMiddleware from "./middleware/metrics.middleware.js";
 import { redisRateLimit } from "./middleware/rateLimit.middleware.js";
 import AppError from "./utils/AppError.js";
 
 const app = express();
 app.set("trust proxy", 1);
+
+app.use(requestContextMiddleware);
+app.use(metricsMiddleware);
 
 const configuredOrigins = [
   process.env.CUSTOMER_WEB_ORIGIN,
