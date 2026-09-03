@@ -1,4 +1,3 @@
-
 import { Router } from "express";
 import authRoutes from "../modules/auth/auth.routes.js";
 import profileRoutes from "../modules/profile/profile.routes.js";
@@ -30,9 +29,18 @@ import partnerApplicationRoutes from "../modules/partnerApplication/partnerAppli
 import auditRoutes from "../modules/audit/audit.routes.js";
 import aiRoutes from "../modules/ai/ai.routes.js";
 import catalogOperationsRoutes from "../modules/catalogOperations/catalog-operations.routes.js";
+import recommendationRoutes from "../modules/recommendation/recommendation.routes.js";
 
 const router = Router();
-router.get("/health", (req, res) => res.status(200).json({ success: true, message: "Backend Running", code: "OK", data: null, errors: [] }));
+
+router.get("/health", (req, res) => res.status(200).json({
+  success: true,
+  message: "Backend Running",
+  code: "OK",
+  data: null,
+  errors: [],
+}));
+
 router.use("/auth", authRoutes);
 router.use("/profile", profileRoutes);
 router.use("/category", categoryRoutes);
@@ -63,4 +71,6 @@ router.use("/partner-applications", partnerApplicationRoutes);
 router.use("/audit", auditRoutes);
 router.use("/ai", aiRoutes);
 router.use("/catalog-operations", catalogOperationsRoutes);
+router.use("/recommendations", recommendationRoutes);
+
 export default router;
