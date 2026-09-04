@@ -7,47 +7,18 @@ import AppError from "../../utils/AppError.js";
 import { rewardDeliveredOrderService } from "../loyalty/loyalty.service.js";
 import { ensureDeliveryOtpService, isDeliveryProofRequired } from "./delivery-proof.service.js";
 import { recordDeliveredOrderEarningsService } from "../partnerOps/partnerOps.service.js";
-
 import { sendNotificationService } from "../notification/notification.service.js";
-import {
-  emitPartnerAssigned,
-  emitOrderUpdated,
-  emitDeliveryUpdated,
-} from "../../socket/emitters.js";
+import { emitPartnerAssigned, emitOrderUpdated, emitDeliveryUpdated } from "../../socket/emitters.js";
 
-const ACTIVE_DELIVERY_STATUSES = [
-  "ASSIGNED",
-  "ACCEPTED",
-  "PICKED_UP",
-  "OUT_FOR_DELIVERY",
-];
-
+const ACTIVE_DELIVERY_STATUSES = ["ASSIGNED", "ACCEPTED", "PICKED_UP", "OUT_FOR_DELIVERY"];
 export const PARTNER_ACCEPTANCE_WINDOW_MS = 90 * 1000;
 
-const getPopulatedDelivery = async (id) => {
-  return await Delivery.findById(id)
-    .populate({
-      path: "orderId",
-      populate: [
-        {
-          path: "addressId",
-        },
-        {
-          path: "userId",
-          select: "name email phone",
-        },
-      ],
-    })
-    .populate(
-      "riderId",
-      "name email phone profileImage role portal"
-    );
-};
+const getPopulatedDelivery = async (id) =>
+  Delivery.findById(id)
+    .populate({ path: "orderId", populate: [{ path: "addressId" }, { path: "userId", select: "name email phone" }] })
+    .populate("riderId", "name email phone profileImage role portal");
 
-const buildDeliveryRealtimePayload = (
-  delivery,
-  order
-) => ({
+const buildDeliveryRealtimePayload = (delivery, order) => ({
   deliveryId: delivery._id,
   orderId: order._id,
   orderNumber: order.orderNumber,
@@ -62,138 +33,66 @@ const buildDeliveryRealtimePayload = (
   deliveredAt: delivery.deliveredAt,
   rejectedAt: delivery.rejectedAt,
   cancelledAt: delivery.cancelledAt,
-  estimatedDeliveryTime:
-    delivery.estimatedDeliveryTime,
-  currentLocation:
-    delivery.currentLocation,
-  destination:
-    order.addressId
-      ? {
-        latitude:
-          order.addressId.latitude,
-        longitude:
-          order.addressId.longitude,
-      }
-      : null,
+  acceptanceDeadlineAt: delivery.acceptanceDeadlineAt,
+  estimatedDeliveryTime: delivery.estimatedDeliveryTime,
+  currentLocation: delivery.currentLocation,
+  destination: order.addressId ? { latitude: order.addressId.latitude, longitude: order.addressId.longitude } : null,
   updatedAt: delivery.updatedAt,
 });
 
-const releaseRider = async (
-  riderId,
-  deliveryId,
-  {
-    completed = false,
-    earning = 0,
-  } = {}
-) => {
-  if (!riderId) {
-    return;
-  }
-
-  const profile = await Profile.findOne({
-    userId: riderId,
-  });
-
-  if (!profile) {
-    return;
-  }
-
+const releaseRider = async (riderId, deliveryId) => {
+  if (!riderId) return;
+  const profile = await Profile.findOne({ userId: riderId });
+  if (!profile || String(profile.currentDeliveryId || "") !== String(deliveryId)) return;
   profile.currentDeliveryId = null;
-
-  if (profile.isOnline) {
-    profile.deliveryStatus = "AVAILABLE";
-  } else {
-    profile.deliveryStatus = "OFFLINE";
-  }
-
-  if (completed) {
-    profile.totalDeliveries =
-      Number(profile.totalDeliveries || 0) + 1;
-
-    profile.totalEarnings =
-      Number(profile.totalEarnings || 0) +
-      Number(earning || 0);
-  }
-
+  profile.deliveryStatus = profile.isOnline ? (profile.isPaused ? "PAUSED" : "AVAILABLE") : "OFFLINE";
   await profile.save();
 };
 
-
 const expireAssignedDelivery = async (delivery, now = new Date()) => {
-  if (
-    !delivery ||
-    delivery.status !== "ASSIGNED" ||
-    !delivery.acceptanceDeadlineAt ||
-    new Date(delivery.acceptanceDeadlineAt) > now
-  ) {
-    return false;
-  }
-
+  if (!delivery || delivery.status !== "ASSIGNED" || !delivery.acceptanceDeadlineAt || new Date(delivery.acceptanceDeadlineAt) > now) return false;
   const riderId = delivery.riderId;
   const order = await Order.findById(delivery.orderId);
-
   delivery.status = "EXPIRED";
   delivery.rejectedAt = now;
   delivery.riderStatus = "OFFLINE";
-  // Keep the previous riderId for audit/history. A later admin assignment
-  // replaces it with the new riderId.
   delivery.acceptanceDeadlineAt = null;
   delivery.updatedBy = riderId || null;
   await delivery.save();
-
-  if (riderId) {
-    const profile = await Profile.findOne({ userId: riderId });
-    if (profile) {
-      profile.currentDeliveryId = null;
-      profile.deliveryStatus = profile.isOnline
-        ? (profile.isPaused ? "PAUSED" : "AVAILABLE")
-        : "OFFLINE";
-      await profile.save();
-    }
-  }
-
+  await releaseRider(riderId, delivery._id);
   if (order) {
     order.orderStatus = "CONFIRMED";
     order.deliveryPartnerId = null;
     order.updatedBy = riderId || null;
     await order.save();
-
-    emitOrderUpdated(order._id, {
-      orderId: order._id,
-      customerId: order.userId,
-      deliveryId: delivery._id,
-      deliveryStatus: "EXPIRED",
-      orderStatus: order.orderStatus,
-      updatedAt: now,
-    });
+    emitOrderUpdated(order._id, { orderId: order._id, customerId: order.userId, deliveryId: delivery._id, deliveryStatus: "EXPIRED", orderStatus: order.orderStatus, updatedAt: now });
   }
-
-  emitDeliveryUpdated(delivery._id, {
-    deliveryId: delivery._id,
-    orderId: delivery.orderId,
-    riderId,
-    deliveryStatus: "EXPIRED",
-    acceptanceDeadlineAt: null,
-    updatedAt: now,
-  });
-
+  emitDeliveryUpdated(delivery._id, { deliveryId: delivery._id, orderId: delivery.orderId, riderId, deliveryStatus: "EXPIRED", acceptanceDeadlineAt: null, updatedAt: now });
   return true;
 };
 
 const expireOverdueAssignedDeliveries = async (riderId) => {
-  const overdue = await Delivery.find({
-    riderId,
-    status: "ASSIGNED",
-    acceptanceDeadlineAt: { $lte: new Date() },
-  });
-
+  const overdue = await Delivery.find({ riderId, status: "ASSIGNED", acceptanceDeadlineAt: { $lte: new Date() } });
   for (const delivery of overdue) {
-    try {
-      await expireAssignedDelivery(delivery);
-    } catch (error) {
-      console.error("Delivery acceptance expiry processing failed:", error.message);
-    }
+    try { await expireAssignedDelivery(delivery); } catch (error) { console.error("Delivery acceptance expiry processing failed:", error.message); }
   }
+};
+
+export const getAvailableRidersService = async () => {
+  const profiles = await Profile.find({ isOnline: true, deliveryStatus: "AVAILABLE", currentDeliveryId: null })
+    .select("userId isOnline deliveryStatus currentDeliveryId updatedAt")
+    .sort({ updatedAt: 1 })
+    .lean();
+  const ids = profiles.map((profile) => profile.userId).filter(Boolean);
+  if (!ids.length) return [];
+  const riders = await User.find({ _id: { $in: ids }, role: "PARTNER", portal: "partner", isActive: { $ne: false } })
+    .select("name email phone profileImage role portal")
+    .lean();
+  const profileMap = new Map(profiles.map((profile) => [String(profile.userId), profile]));
+  return riders.map((rider) => ({
+    ...rider,
+    availableSince: profileMap.get(String(rider._id))?.updatedAt || null,
+  }));
 };
 
 export const getAllDeliveriesService = async (query = {}) => {
@@ -202,1279 +101,136 @@ export const getAllDeliveriesService = async (query = {}) => {
     .populate({ path: "orderId", populate: { path: "addressId" } })
     .populate("riderId", "name email phone profileImage role portal")
     .sort({ createdAt: -1 });
-  if (!pagination.hasPagination) return await base;
-  const [items, total] = await Promise.all([
-    base.skip(pagination.skip).limit(pagination.limit),
-    Delivery.countDocuments(),
-  ]);
+  if (!pagination.hasPagination) return base;
+  const [items, total] = await Promise.all([base.skip(pagination.skip).limit(pagination.limit), Delivery.countDocuments()]);
   return { items, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
 };
 
-export const getDeliveryByIdService = async (
-  id,
-  userId,
-  userRole
-) => {
-  const delivery =
-    await getPopulatedDelivery(id);
+export const assignRiderService = async (id, riderId, userId) => {
+  if (!riderId) throw new Error("Delivery partner is required");
 
-  if (!delivery) {
-    throw new Error("Delivery not found");
+  const delivery = await Delivery.findById(id);
+  if (!delivery) throw new Error("Delivery not found");
+  if (!["PENDING", "EXPIRED", "REJECTED", "FAILED"].includes(delivery.status)) throw new AppError(409, "DELIVERY_NOT_ASSIGNABLE", "Delivery is not available for assignment");
+
+  const order = await Order.findById(delivery.orderId).populate("addressId");
+  if (!order) throw new Error("Order not found");
+  if (["CANCELLED", "DELIVERED"].includes(order.orderStatus)) throw new AppError(409, "ORDER_NOT_ASSIGNABLE", `Cannot assign rider to ${order.orderStatus.toLowerCase()} order`);
+
+  const rider = await User.findOne({ _id: riderId, role: "PARTNER", portal: "partner", isActive: { $ne: false } }).select("name email phone profileImage role portal").lean();
+  if (!rider) throw new AppError(404, "PARTNER_NOT_FOUND", "Selected user is not an active delivery partner");
+
+  const now = new Date();
+  const claimedProfile = await Profile.findOneAndUpdate(
+    { userId: riderId, isOnline: true, isPaused: { $ne: true }, deliveryStatus: "AVAILABLE", currentDeliveryId: null },
+    { $set: { deliveryStatus: "BUSY", currentDeliveryId: delivery._id } },
+    { new: true },
+  );
+
+  if (!claimedProfile) {
+    throw new AppError(409, "RIDER_ALREADY_ALLOCATED", "Delivery partner is no longer available. Refresh the rider list and try again.");
   }
 
-  if (
-    userRole === "PARTNER" &&
-    (
-      !delivery.riderId ||
-      String(delivery.riderId._id ?? delivery.riderId) !==
-      String(userId)
-    )
-  ) {
-    throw new Error(
-      "This delivery is not assigned to you"
-    );
-  }
-
-  return delivery;
-};
-
-export const getMyDeliveriesService = async (riderId, query = {}) => {
-  await expireOverdueAssignedDeliveries(riderId);
-  const pagination = parsePagination(query);
-  const filter = { riderId };
-  const base = Delivery.find(filter)
-    .populate({ path: "orderId", populate: { path: "addressId" } })
-    .populate("riderId", "name email phone profileImage role portal")
-    .sort({ createdAt: -1 });
-  if (!pagination.hasPagination) return await base;
-  const [items, total] = await Promise.all([
-    base.skip(pagination.skip).limit(pagination.limit),
-    Delivery.countDocuments(filter),
-  ]);
-  return { items, pagination: buildPagination({ page: pagination.page, limit: pagination.limit, total }) };
-};
-
-export const getMyActiveDeliveryService = async (
-  riderId
-) => {
-  await expireOverdueAssignedDeliveries(riderId);
-  return await Delivery.findOne({
+  const conflicting = await Delivery.findOne({
     riderId,
-    status: {
-      $in: [
-        "ASSIGNED",
-        "ACCEPTED",
-        "PICKED_UP",
-        "OUT_FOR_DELIVERY",
-      ],
+    status: { $in: ACTIVE_DELIVERY_STATUSES },
+    _id: { $ne: delivery._id },
+  }).select("_id").lean();
+
+  if (conflicting) {
+    await Profile.updateOne(
+      { _id: claimedProfile._id, currentDeliveryId: delivery._id },
+      { $set: { currentDeliveryId: null, deliveryStatus: "AVAILABLE" } },
+    );
+    throw new AppError(409, "RIDER_ALREADY_ALLOCATED", "Delivery partner is already handling another active delivery.");
+  }
+
+  const updated = await Delivery.findOneAndUpdate(
+    { _id: delivery._id, status: { $in: ["PENDING", "EXPIRED", "REJECTED", "FAILED"] } },
+    {
+      $set: {
+        riderId,
+        status: "ASSIGNED",
+        assignedAt: now,
+        acceptanceDeadlineAt: new Date(now.getTime() + PARTNER_ACCEPTANCE_WINDOW_MS),
+        rejectedAt: null,
+        riderStatus: "BUSY",
+        currentLocation: null,
+        updatedBy: userId,
+      },
     },
-  })
-    .populate({
-      path: "orderId",
-      populate: {
-        path: "addressId",
-      },
-    })
-    .populate(
-      "riderId",
-      "name email phone profileImage role portal"
-    )
-    .sort({
-      assignedAt: -1,
-    });
-};
-
-export const createDeliveryService = async (
-  userId,
-  body
-) => {
-  if (!body.orderId) {
-    throw new Error("Order ID is required");
-  }
-
-  const order = await Order.findById(
-    body.orderId
-  ).populate("addressId");
-
-  if (!order) {
-    throw new Error("Order not found");
-  }
-
-  if (order.orderStatus === "CANCELLED") {
-    throw new Error(
-      "Cannot create delivery for a cancelled order"
-    );
-  }
-
-  if (order.orderStatus === "DELIVERED") {
-    throw new Error(
-      "Order is already delivered"
-    );
-  }
-
-  const existing =
-    await Delivery.findOne({
-      orderId: body.orderId,
-    });
-
-  if (existing) {
-    throw new Error(
-      "Delivery already exists for this order"
-    );
-  }
-
-  const delivery =
-    await Delivery.create({
-      orderId: body.orderId,
-      deliveryCharge:
-        Number(order.deliveryCharge) || 0,
-      estimatedDeliveryTime:
-        body.estimatedDeliveryTime || null,
-      notes: body.notes || "",
-      createdBy: userId,
-    });
-
-  // Generate the door OTP as soon as a delivery exists for COD/high-value orders.
-  // The OTP is hidden from admin/rider queries and exposed only to the customer.
-  if (isDeliveryProofRequired(order)) {
-    await ensureDeliveryOtpService(delivery._id);
-  }
-
-  emitDeliveryUpdated(
-    delivery._id,
-    buildDeliveryRealtimePayload(
-      delivery,
-      order
-    )
+    { new: true },
   );
 
-  return await getPopulatedDelivery(
-    delivery._id
-  );
-};
-
-export const assignRiderService = async (
-  id,
-  riderId,
-  userId
-) => {
-  if (!riderId) {
-    throw new Error(
-      "Delivery partner is required"
+  if (!updated) {
+    await Profile.updateOne(
+      { _id: claimedProfile._id, currentDeliveryId: delivery._id },
+      { $set: { currentDeliveryId: null, deliveryStatus: "AVAILABLE" } },
     );
+    throw new AppError(409, "DELIVERY_ASSIGNMENT_CONFLICT", "Delivery was changed by another admin. Refresh the order and try again.");
   }
 
-  const delivery =
-    await Delivery.findById(id);
-
-  if (!delivery) {
-    throw new Error("Delivery not found");
-  }
-
-  if (!["PENDING", "EXPIRED"].includes(delivery.status)) {
-    throw new Error(
-      "Delivery is not available for assignment"
-    );
-  }
-
-  const order = await Order.findById(
-    delivery.orderId
-  ).populate("addressId");
-
-  if (!order) {
-    throw new Error("Order not found");
-  }
-
-  if (
-    order.orderStatus === "CANCELLED" ||
-    order.orderStatus === "DELIVERED"
-  ) {
-    throw new Error(
-      `Cannot assign rider to ${order.orderStatus.toLowerCase()} order`
-    );
-  }
-
-  const rider = await User.findById(
-    riderId
+  const orderUpdated = await Order.findOneAndUpdate(
+    { _id: order._id, orderStatus: { $nin: ["CANCELLED", "DELIVERED"] } },
+    { $set: { orderStatus: "CONFIRMED", deliveryPartnerId: riderId, updatedBy: userId } },
+    { new: true },
   );
 
-  if (!rider) {
-    throw new Error(
-      "Delivery partner not found"
+  if (!orderUpdated) {
+    await Delivery.findOneAndUpdate(
+      { _id: updated._id, riderId, status: "ASSIGNED" },
+      { $set: { riderId: null, status: "PENDING", acceptanceDeadlineAt: null, riderStatus: "OFFLINE", updatedBy: userId } },
     );
-  }
-
-  if (
-    rider.role !== "PARTNER" ||
-    rider.portal !== "partner"
-  ) {
-    throw new Error(
-      "Selected user is not a delivery partner"
+    await Profile.updateOne(
+      { _id: claimedProfile._id, currentDeliveryId: delivery._id },
+      { $set: { currentDeliveryId: null, deliveryStatus: "AVAILABLE" } },
     );
+    throw new AppError(409, "ORDER_STATE_CHANGED", "Order state changed while assigning. Refresh and try again.");
   }
-
-  if (rider.isActive === false) {
-    throw new Error(
-      "Delivery partner account is inactive"
-    );
-  }
-
-  const profile =
-    await Profile.findOne({
-      userId: riderId,
-    });
-
-  if (!profile) {
-    throw new Error(
-      "Delivery partner profile not found"
-    );
-  }
-
-  if (
-    !profile.isOnline ||
-    profile.deliveryStatus !== "AVAILABLE"
-  ) {
-    throw new Error(
-      "Delivery partner is not available"
-    );
-  }
-
-  if (profile.currentDeliveryId) {
-    throw new Error(
-      "Delivery partner already has an active delivery"
-    );
-  }
-
-  const activeDelivery =
-    await Delivery.findOne({
-      riderId,
-      status: {
-        $in: ACTIVE_DELIVERY_STATUSES,
-      },
-    });
-
-  if (activeDelivery) {
-    throw new Error(
-      "Delivery partner already has an active delivery"
-    );
-  }
-
-  // Assign delivery
-  delivery.riderId = riderId;
-  delivery.status = "ASSIGNED";
-  delivery.assignedAt = new Date();
-  delivery.acceptanceDeadlineAt = new Date(
-    delivery.assignedAt.getTime() + PARTNER_ACCEPTANCE_WINDOW_MS
-  );
-  delivery.rejectedAt = null;
-  delivery.riderStatus = "BUSY";
-  delivery.currentLocation = null;
-  delivery.updatedBy = userId;
-
-  await delivery.save();
-
-  // Update partner availability
-  profile.deliveryStatus = "BUSY";
-  profile.currentDeliveryId =
-    delivery._id;
-
-  await profile.save();
-
-  // Update order
-  order.orderStatus = "CONFIRMED";
-  order.deliveryPartnerId = riderId;
-  order.updatedBy = userId;
-
-  await order.save();
 
   const assignmentPayload = {
-    deliveryId: delivery._id,
-    orderId: order._id,
-    customerId: order.userId,
+    deliveryId: updated._id,
+    orderId: orderUpdated._id,
+    customerId: orderUpdated.userId,
     riderId,
-    orderNumber: order.orderNumber,
-    deliveryStatus: delivery.status,
-    orderStatus: order.orderStatus,
-    assignedAt: delivery.assignedAt,
-    acceptanceDeadlineAt: delivery.acceptanceDeadlineAt,
-    destination:
-      order.addressId
-        ? {
-          latitude:
-            order.addressId.latitude,
-          longitude:
-            order.addressId.longitude,
-        }
-        : null,
+    orderNumber: orderUpdated.orderNumber,
+    deliveryStatus: updated.status,
+    orderStatus: orderUpdated.orderStatus,
+    assignedAt: updated.assignedAt,
+    acceptanceDeadlineAt: updated.acceptanceDeadlineAt,
+    destination: orderUpdated.addressId ? { latitude: orderUpdated.addressId.latitude, longitude: orderUpdated.addressId.longitude } : null,
   };
 
-  emitPartnerAssigned(
-    riderId,
-    assignmentPayload
-  );
+  emitPartnerAssigned(riderId, assignmentPayload);
+  emitDeliveryUpdated(updated._id, assignmentPayload);
 
-  emitDeliveryUpdated(
-    delivery._id,
-    assignmentPayload
-  );
-
-  // Notify delivery partner
   try {
     await sendNotificationService({
       userId: riderId,
       title: "New delivery assigned",
-      message:
-        `A new delivery has been assigned to you for order ${order.orderNumber}.`,
+      message: `A new delivery has been assigned to you for order ${orderUpdated.orderNumber}.`,
       type: "RIDER_ASSIGNED",
       channel: "IN_APP",
-      metadata: {
-        deliveryId:
-          delivery._id.toString(),
-        orderId:
-          order._id.toString(),
-        orderNumber:
-          order.orderNumber,
-      },
+      metadata: { deliveryId: updated._id.toString(), orderId: orderUpdated._id.toString(), orderNumber: orderUpdated.orderNumber },
       createdBy: userId,
     });
   } catch (error) {
-    console.error(
-      "Rider assignment notification failed:",
-      error.message
-    );
+    console.error("Rider assignment notification failed:", error.message);
   }
 
-  // Notify customer
   try {
     await sendNotificationService({
-      userId: order.userId,
+      userId: orderUpdated.userId,
       title: "Delivery partner assigned",
-      message:
-        `A delivery partner has been assigned to order ${order.orderNumber}.`,
+      message: `A delivery partner has been assigned to order ${orderUpdated.orderNumber}.`,
       type: "RIDER_ASSIGNED",
       channel: "IN_APP",
-      metadata: {
-        deliveryId:
-          delivery._id.toString(),
-        orderId:
-          order._id.toString(),
-        orderNumber:
-          order.orderNumber,
-        riderId:
-          rider._id.toString(),
-      },
+      metadata: { deliveryId: updated._id.toString(), orderId: orderUpdated._id.toString(), orderNumber: orderUpdated.orderNumber, riderId: rider._id.toString() },
       createdBy: userId,
     });
   } catch (error) {
-    console.error(
-      "Customer assignment notification failed:",
-      error.message
-    );
+    console.error("Customer assignment notification failed:", error.message);
   }
 
-  return await getPopulatedDelivery(
-    delivery._id
-  );
+  return getPopulatedDelivery(updated._id);
 };
-
-export const updateDeliveryStatusService =
-  async (
-    id,
-    status,
-    userId,
-    userRole
-  ) => {
-    const delivery =
-      await Delivery.findById(id);
-
-    if (!delivery) {
-      throw new Error(
-        "Delivery not found"
-      );
-    }
-
-    if (userRole === "PARTNER") {
-      if (
-        !delivery.riderId ||
-        String(delivery.riderId) !==
-        String(userId)
-      ) {
-        throw new Error(
-          "This delivery is not assigned to you"
-        );
-      }
-    }
-
-    const nextStatus = String(
-      status || ""
-    ).toUpperCase();
-
-    const allowedStatuses = [
-      "ACCEPTED",
-      "PICKED_UP",
-      "OUT_FOR_DELIVERY",
-      "DELIVERED",
-      "REJECTED",
-      "CANCELLED",
-    ];
-
-    if (
-      !allowedStatuses.includes(
-        nextStatus
-      )
-    ) {
-      throw new Error(
-        "Invalid delivery status"
-      );
-    }
-
-    if (
-      delivery.status === "DELIVERED"
-    ) {
-      throw new Error(
-        "Delivered delivery cannot be modified"
-      );
-    }
-
-    if (
-      delivery.status === "CANCELLED"
-    ) {
-      throw new Error(
-        "Cancelled delivery cannot be modified"
-      );
-    }
-
-    if (
-      delivery.status === "REJECTED"
-    ) {
-      throw new Error(
-        "Rejected delivery cannot be modified"
-      );
-    }
-
-    const order =
-      await Order.findById(
-        delivery.orderId
-      ).populate("addressId");
-
-    if (!order) {
-      throw new Error(
-        "Order not found"
-      );
-    }
-
-    const now = new Date();
-
-    if (
-      nextStatus === "ACCEPTED" &&
-      delivery.status === "ASSIGNED" &&
-      delivery.acceptanceDeadlineAt &&
-      new Date(delivery.acceptanceDeadlineAt) <= now
-    ) {
-      await expireAssignedDelivery(delivery, now);
-      throw new AppError(
-        409,
-        "DELIVERY_ACCEPTANCE_EXPIRED",
-        "The acceptance window has expired. The delivery has been released for reassignment."
-      );
-    }
-
-    if (nextStatus === "DELIVERED") {
-      if (isDeliveryProofRequired(order)) {
-        if (!delivery.deliveryOtpVerified) {
-          throw new AppError(
-            409,
-            "DELIVERY_OTP_REQUIRED",
-            "Delivery OTP must be verified before completing this delivery"
-          );
-        }
-
-        if (!delivery.customerConfirmedAt) {
-          throw new AppError(
-            409,
-            "CUSTOMER_CONFIRMATION_REQUIRED",
-            "Customer confirmation is required before completing this delivery"
-          );
-        }
-      }
-    }
-
-    switch (nextStatus) {
-      case "ACCEPTED":
-        if (
-          delivery.status !==
-          "ASSIGNED"
-        ) {
-          throw new Error(
-            "Delivery must be assigned first"
-          );
-        }
-
-        if (!delivery.riderId) {
-          throw new Error(
-            "Delivery partner is not assigned"
-          );
-        }
-
-        delivery.acceptedAt = now;
-        delivery.acceptanceDeadlineAt = null;
-        delivery.riderStatus = "BUSY";
-
-        break;
-
-      case "PICKED_UP":
-        if (
-          delivery.status !==
-          "ACCEPTED"
-        ) {
-          throw new Error(
-            "Delivery must be accepted first"
-          );
-        }
-
-        delivery.pickedUpAt = now;
-        delivery.riderStatus = "BUSY";
-
-        break;
-
-      case "OUT_FOR_DELIVERY":
-        if (
-          delivery.status !==
-          "PICKED_UP"
-        ) {
-          throw new Error(
-            "Order must be picked up first"
-          );
-        }
-
-        delivery.riderStatus = "BUSY";
-
-        break;
-
-      case "DELIVERED":
-        if (
-          delivery.status !==
-          "OUT_FOR_DELIVERY"
-        ) {
-          throw new Error(
-            "Delivery must be out for delivery first"
-          );
-        }
-
-        delivery.deliveredAt = now;
-
-        delivery.earning =
-          Number(
-            delivery.deliveryCharge
-          ) || 0;
-
-        delivery.riderStatus =
-          "ONLINE";
-      // Delivery is complete: permanently remove the last live GPS point.
-      delivery.currentLocation = null;
-
-        break;
-
-      case "REJECTED": {
-        if (
-          delivery.status !==
-          "ASSIGNED"
-        ) {
-          throw new Error(
-            "Only an assigned delivery can be rejected"
-          );
-        }
-
-        const rejectedRiderId =
-          delivery.riderId;
-
-        delivery.rejectedAt = now;
-
-        await releaseRider(
-          rejectedRiderId,
-          delivery._id
-        );
-
-        delivery.riderId = null;
-        delivery.status = "PENDING";
-        delivery.riderStatus =
-          "OFFLINE";
-        delivery.assignedAt = null;
-        delivery.acceptanceDeadlineAt = null;
-        delivery.updatedBy = userId;
-
-        await delivery.save();
-
-        order.orderStatus =
-          "CONFIRMED";
-        order.deliveryPartnerId =
-          null;
-        order.updatedBy = userId;
-
-        await order.save();
-
-        emitOrderUpdated(
-          order._id,
-          {
-            orderId: order._id,
-            deliveryId: delivery._id,
-            orderStatus: order.orderStatus,
-            deliveryStatus: delivery.status,
-            updatedAt: new Date(),
-          }
-        );
-
-        return await getPopulatedDelivery(
-          delivery._id
-        );
-      }
-
-      case "CANCELLED":
-        delivery.cancelledAt = now;
-        delivery.riderStatus =
-          "ONLINE";
-      // Delivery is complete: permanently remove the last live GPS point.
-      delivery.currentLocation = null;
-
-        break;
-    }
-
-    delivery.status = nextStatus;
-    delivery.updatedBy = userId;
-
-    await delivery.save();
-
-    const orderStatusMap = {
-      ACCEPTED: "CONFIRMED",
-      PICKED_UP:
-        "READY_FOR_PICKUP",
-      OUT_FOR_DELIVERY:
-        "OUT_FOR_DELIVERY",
-      DELIVERED: "DELIVERED",
-      CANCELLED: "CANCELLED",
-    };
-
-    if (
-      orderStatusMap[nextStatus]
-    ) {
-      order.orderStatus =
-        orderStatusMap[nextStatus];
-
-      order.updatedBy = userId;
-
-      if (
-        nextStatus === "DELIVERED"
-      ) {
-        order.deliveryPartnerId =
-          delivery.riderId;
-      }
-
-      if (
-        nextStatus === "CANCELLED"
-      ) {
-        order.deliveryPartnerId =
-          null;
-      }
-
-      await order.save();
-    }
-
-    if (
-      nextStatus === "DELIVERED"
-    ) {
-      if (delivery.riderId) {
-        await User.findByIdAndUpdate(delivery.riderId, { $set: { currentLocation: null } });
-      }
-
-      try { await rewardDeliveredOrderService(order); } catch (e) { console.error("Loyalty reward processing failed:", e.message); }
-
-      await releaseRider(
-        delivery.riderId,
-        delivery._id,
-        {
-          completed: true,
-          earning:
-            delivery.earning,
-        }
-      );
-
-      try {
-        await recordDeliveredOrderEarningsService(delivery);
-      } catch (error) {
-        // Earnings are ledgered independently so a transient ledger failure
-        // never prevents the customer order from being marked delivered.
-        console.error("Partner earnings ledger failed:", error.message);
-      }
-    }
-
-    if (
-      nextStatus === "CANCELLED"
-    ) {
-      await releaseRider(
-        delivery.riderId,
-        delivery._id
-      );
-
-      delivery.currentLocation = null;
-      await delivery.save();
-    }
-
-    const realtimePayload =
-      buildDeliveryRealtimePayload(
-        delivery,
-        order
-      );
-
-    emitOrderUpdated(
-      order._id,
-      realtimePayload
-    );
-
-    emitDeliveryUpdated(
-      delivery._id,
-      realtimePayload
-    );
-
-    // Send customer notification only
-    // after delivery/order updates succeed.
-    const notificationMap = {
-      ACCEPTED: {
-        title:
-          "Delivery accepted",
-        type:
-          "DELIVERY_ACCEPTED",
-        message:
-          `Your delivery partner accepted order ${order.orderNumber}.`,
-      },
-
-      PICKED_UP: {
-        title:
-          "Order picked up",
-        type: "PICKED_UP",
-        message:
-          `Order ${order.orderNumber} has been picked up by your delivery partner.`,
-      },
-
-      OUT_FOR_DELIVERY: {
-        title:
-          "Order is on the way",
-        type:
-          "OUT_FOR_DELIVERY",
-        message:
-          `Order ${order.orderNumber} is out for delivery.`,
-      },
-
-      DELIVERED: {
-        title:
-          "Order delivered",
-        type: "DELIVERED",
-        message:
-          `Order ${order.orderNumber} has been delivered successfully.`,
-      },
-
-      CANCELLED: {
-        title: "Delivery cancelled",
-        type: "ORDER_CANCELLED",
-        message:
-          `Delivery for order ${order.orderNumber} has been cancelled.`,
-      },
-    };
-
-    const notification =
-      notificationMap[nextStatus];
-
-    if (notification) {
-      try {
-        await sendNotificationService({
-          userId: order.userId,
-          title:
-            notification.title,
-          message:
-            notification.message,
-          type:
-            notification.type,
-          channel: "IN_APP",
-          metadata: {
-            deliveryId:
-              delivery._id.toString(),
-            orderId:
-              order._id.toString(),
-            orderNumber:
-              order.orderNumber,
-            deliveryStatus:
-              nextStatus,
-          },
-          createdBy: userId,
-        });
-      } catch (error) {
-        console.error(
-          "Delivery notification failed:",
-          error.message
-        );
-      }
-    }
-
-    return await getPopulatedDelivery(
-      delivery._id
-    );
-  };
-
-export const getDeliveryRouteService = async (
-  id,
-  userId,
-  userRole
-) => {
-  const delivery = await getPopulatedDelivery(id);
-
-  if (!delivery) {
-    throw new Error("Delivery not found");
-  }
-
-  const routeOrder = delivery.orderId;
-  if (delivery.status === "DELIVERED" || routeOrder?.orderStatus === "DELIVERED" || delivery.status === "CANCELLED" || delivery.status === "REJECTED" || delivery.status === "FAILED") {
-    throw new AppError(410, "DELIVERY_TRACKING_ENDED", "Live delivery tracking is no longer available for this order");
-  }
-
-  const riderId =
-    delivery.riderId?._id ??
-    delivery.riderId;
-
-  if (
-    userRole === "PARTNER" &&
-    String(riderId) !== String(userId)
-  ) {
-    throw new Error(
-      "This delivery is not assigned to you"
-    );
-  }
-
-  const order = delivery.orderId;
-
-  if (
-    userRole === "CUSTOMER" &&
-    String(
-      order?.userId?._id ??
-      order?.userId
-    ) !== String(userId)
-  ) {
-    throw new Error(
-      "This delivery does not belong to you"
-    );
-  }
-
-  const current =
-    delivery.currentLocation;
-
-  const destination =
-    order?.addressId;
-
-  if (!current) {
-    throw new Error(
-      "Live partner location is not available yet"
-    );
-  }
-
-  const sourceLat =
-    Number(current.latitude);
-
-  const sourceLng =
-    Number(current.longitude);
-
-  const destinationLat =
-    Number(destination?.latitude);
-
-  const destinationLng =
-    Number(destination?.longitude);
-
-  // ==========================================
-  // VALIDATE SOURCE COORDINATES
-  // ==========================================
-
-  if (
-    !Number.isFinite(sourceLat) ||
-    !Number.isFinite(sourceLng) ||
-    (
-      sourceLat === 0 &&
-      sourceLng === 0
-    )
-  ) {
-    throw new Error(
-      "Live partner location coordinates are invalid"
-    );
-  }
-
-  // ==========================================
-  // VALIDATE DESTINATION COORDINATES
-  // ==========================================
-
-  if (
-    !Number.isFinite(destinationLat) ||
-    !Number.isFinite(destinationLng) ||
-    (
-      destinationLat === 0 &&
-      destinationLng === 0
-    )
-  ) {
-    throw new Error(
-      "Delivery address coordinates are not available"
-    );
-  }
-
-  if (
-    destinationLat < -90 ||
-    destinationLat > 90 ||
-    destinationLng < -180 ||
-    destinationLng > 180
-  ) {
-    throw new Error(
-      "Delivery address coordinates are outside valid range"
-    );
-  }
-
-  // ==========================================
-  // SAME LOCATION CHECK
-  // ==========================================
-
-  if (
-    sourceLat === destinationLat &&
-    sourceLng === destinationLng
-  ) {
-    return {
-      deliveryId: delivery._id,
-      orderId: order._id,
-
-      source: {
-        latitude: sourceLat,
-        longitude: sourceLng,
-      },
-
-      destination: {
-        latitude: destinationLat,
-        longitude: destinationLng,
-      },
-
-      distanceMeters: 0,
-      durationSeconds: 0,
-      etaMinutes: 1,
-
-      geometry: {
-        type: "LineString",
-        coordinates: [
-          [
-            sourceLng,
-            sourceLat,
-          ],
-        ],
-      },
-
-      locationUpdatedAt:
-        current.updatedAt,
-    };
-  }
-
-  // ==========================================
-  // OSRM
-  // ==========================================
-
-  const configuredBaseUrl =
-    process.env.OSRM_BASE_URL?.trim();
-
-  const osrmBaseUrl =
-    configuredBaseUrl &&
-      /^https?:\/\/[^/\s]+/i.test(
-        configuredBaseUrl
-      )
-      ? configuredBaseUrl.replace(
-        /\/+$/,
-        ""
-      )
-      : "https://router.project-osrm.org";
-
-  /*
-   * IMPORTANT:
-   *
-   * OSRM expects:
-   *
-   * longitude,latitude
-   *
-   * NOT:
-   *
-   * latitude,longitude
-   */
-
-  const coordinates =
-    `${sourceLng},${sourceLat};` +
-    `${destinationLng},${destinationLat}`;
-
-  const url =
-    `${osrmBaseUrl}/route/v1/driving/` +
-    `${coordinates}` +
-    `?overview=full&geometries=geojson&steps=false`;
-
-  console.log(
-    "🗺️ OSRM ROUTE REQUEST:",
-    {
-      deliveryId:
-        String(delivery._id),
-
-      source: {
-        latitude: sourceLat,
-        longitude: sourceLng,
-      },
-
-      destination: {
-        latitude: destinationLat,
-        longitude: destinationLng,
-      },
-
-      url,
-    }
-  );
-
-  const controller =
-    new AbortController();
-
-  const timeout = setTimeout(
-    () => controller.abort(),
-    10000
-  );
-
-  try {
-    const response =
-      await fetch(url, {
-        method: "GET",
-        signal: controller.signal,
-        headers: {
-          Accept:
-            "application/json",
-          "User-Agent":
-            "Fresh15-Delivery/1.0",
-        },
-      });
-
-    const responseText =
-      await response.text();
-
-    let data = null;
-
-    try {
-      data =
-        JSON.parse(responseText);
-    } catch {
-      data = null;
-    }
-
-    // ==========================================
-    // OSRM ERROR
-    // ==========================================
-
-    if (!response.ok) {
-      console.error(
-        "❌ OSRM ROUTING ERROR:",
-        {
-          status:
-            response.status,
-
-          statusText:
-            response.statusText,
-
-          response:
-            data || responseText,
-
-          url,
-        }
-      );
-
-      throw new Error(
-        `Routing service returned ${response.status}: ${data?.message ||
-        data?.code ||
-        responseText ||
-        "Unknown routing error"
-        }`
-      );
-    }
-
-    // ==========================================
-    // OSRM RESPONSE VALIDATION
-    // ==========================================
-
-    if (!data) {
-      throw new Error(
-        "Routing service returned an invalid response"
-      );
-    }
-
-    if (
-      data.code &&
-      data.code !== "Ok"
-    ) {
-      throw new Error(
-        `Routing service error: ${data.code}${data.message
-          ? ` - ${data.message}`
-          : ""
-        }`
-      );
-    }
-
-    const route =
-      data?.routes?.[0];
-
-    if (!route) {
-      throw new Error(
-        "No route available between partner and delivery address"
-      );
-    }
-
-    if (
-      !route.geometry ||
-      route.geometry.type !==
-      "LineString" ||
-      !Array.isArray(
-        route.geometry.coordinates
-      ) ||
-      route.geometry.coordinates.length ===
-      0
-    ) {
-      throw new Error(
-        "Routing service returned no route geometry"
-      );
-    }
-
-    // ==========================================
-    // FINAL RESPONSE
-    // ==========================================
-
-    return {
-      deliveryId:
-        delivery._id,
-
-      orderId:
-        order._id,
-
-      source: {
-        latitude:
-          sourceLat,
-
-        longitude:
-          sourceLng,
-      },
-
-      destination: {
-        latitude:
-          destinationLat,
-
-        longitude:
-          destinationLng,
-      },
-
-      distanceMeters:
-        Number(route.distance) || 0,
-
-      durationSeconds:
-        Number(route.duration) || 0,
-
-      etaMinutes:
-        Math.max(
-          1,
-          Math.ceil(
-            Number(route.duration || 0) /
-            60
-          )
-        ),
-
-      geometry:
-        route.geometry,
-
-      locationUpdatedAt:
-        current.updatedAt,
-    };
-  } catch (error) {
-    if (
-      error?.name ===
-      "AbortError"
-    ) {
-      throw new Error(
-        "Routing service timed out"
-      );
-    }
-
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-};
-
-export const deleteDeliveryService =
-  async (id) => {
-    const delivery =
-      await Delivery.findById(id);
-
-    if (!delivery) {
-      throw new Error(
-        "Delivery not found"
-      );
-    }
-
-    if (
-      ACTIVE_DELIVERY_STATUSES.includes(
-        delivery.status
-      )
-    ) {
-      throw new Error(
-        "Active delivery cannot be deleted"
-      );
-    }
-
-    if (delivery.riderId) {
-      await releaseRider(
-        delivery.riderId,
-        delivery._id
-      );
-    }
-
-    await delivery.deleteOne();
-
-    return;
-  };
-
-export const getCustomerDeliveryByOrderService =
-  async (orderId, userId) => {
-    const order = await Order.findOne({
-      _id: orderId,
-      userId,
-    });
-
-    if (!order) {
-      throw new Error("Order not found");
-    }
-
-    const delivery =
-      await Delivery.findOne({
-        orderId: order._id,
-      })
-        .populate(
-          "riderId",
-          "name phone profileImage role portal"
-        )
-        .populate({
-          path: "orderId",
-          select:
-            "orderNumber orderStatus userId addressId",
-          populate: {
-            path: "addressId",
-          },
-        });
-
-    if (!delivery) {
-      throw new Error(
-        "Delivery not found"
-      );
-    }
-
-    if (order.orderStatus === "DELIVERED" || delivery.status === "DELIVERED") {
-      delivery.currentLocation = null;
-      delivery.riderStatus = "OFFLINE";
-    }
-
-    return delivery;
-  };
