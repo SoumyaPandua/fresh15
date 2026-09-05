@@ -8,15 +8,43 @@ import { writeAuditLog } from "../audit/audit.service.js";
 import { sendNotificationService } from "../notification/notification.service.js";
 import AppError from "../../utils/AppError.js";
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+let razorpayClient = null;
+
+const getRazorpayClient = () => {
+  if (razorpayClient) return razorpayClient;
+
+  const keyId = String(process.env.RAZORPAY_KEY_ID || "").trim();
+  const keySecret = String(process.env.RAZORPAY_KEY_SECRET || "").trim();
+
+  if (!keyId || !keySecret) {
+    throw new AppError(
+      503,
+      "RAZORPAY_NOT_CONFIGURED",
+      "Razorpay refund processing is not configured",
+    );
+  }
+
+  razorpayClient = new Razorpay({
+    key_id: keyId,
+    key_secret: keySecret,
+  });
+
+  return razorpayClient;
+};
 
 const ACTIVE_REFUND_STATUSES = [
   "REQUESTED",
   "APPROVED",
   "PROCESSING",
+  "MANUAL_REQUIRED",
+];
+
+const RESERVED_REFUND_STATUSES = [
+  "REQUESTED",
+  "APPROVED",
+  "PROCESSING",
+  "MANUAL_REQUIRED",
+  "PROCESSED",
 ];
 
 const getOrderRefundTotals = async (orderId) => {
@@ -24,7 +52,7 @@ const getOrderRefundTotals = async (orderId) => {
     {
       $match: {
         orderId,
-        status: { $in: ["REQUESTED", "APPROVED", "PROCESSING", "PROCESSED"] },
+        status: { $in: RESERVED_REFUND_STATUSES },
       },
     },
     {
@@ -40,12 +68,7 @@ const getOrderRefundTotals = async (orderId) => {
 
 const getProcessedRefundTotal = async (orderId) => {
   const rows = await Refund.aggregate([
-    {
-      $match: {
-        orderId,
-        status: "PROCESSED",
-      },
-    },
+    { $match: { orderId, status: "PROCESSED" } },
     {
       $group: {
         _id: "$orderId",
@@ -101,7 +124,10 @@ const notifyCustomer = async (refund, title, message, actorId = null) => {
   }
 };
 
-export const createRefundRequestService = async (userId, { orderId, amount, reason }) => {
+export const createRefundRequestService = async (
+  userId,
+  { orderId, amount, reason },
+) => {
   const order = await Order.findOne({
     _id: orderId,
     userId,
@@ -116,7 +142,7 @@ export const createRefundRequestService = async (userId, { orderId, amount, reas
     throw new AppError(
       409,
       "REFUND_NOT_ELIGIBLE",
-      "Refunds can only be requested for delivered or cancelled orders"
+      "Refunds can only be requested for delivered or cancelled orders",
     );
   }
 
@@ -124,13 +150,17 @@ export const createRefundRequestService = async (userId, { orderId, amount, reas
     throw new AppError(
       409,
       "PAYMENT_NOT_REFUNDABLE",
-      "Only successfully paid orders can be refunded"
+      "Only successfully paid orders can be refunded",
     );
   }
 
   const requestedAmount = Number(amount);
   if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
-    throw new AppError(400, "INVALID_REFUND_AMOUNT", "Refund amount must be greater than zero");
+    throw new AppError(
+      400,
+      "INVALID_REFUND_AMOUNT",
+      "Refund amount must be greater than zero",
+    );
   }
 
   const reservedAmount = await getOrderRefundTotals(order._id);
@@ -140,7 +170,7 @@ export const createRefundRequestService = async (userId, { orderId, amount, reas
     throw new AppError(
       409,
       "REFUND_AMOUNT_EXCEEDED",
-      `Only ₹${remaining.toFixed(2)} remains refundable for this order`
+      `Only ₹${remaining.toFixed(2)} remains refundable for this order`,
     );
   }
 
@@ -154,14 +184,24 @@ export const createRefundRequestService = async (userId, { orderId, amount, reas
     throw new AppError(
       409,
       "REFUND_REQUEST_EXISTS",
-      "This order already has a refund request being processed"
+      "This order already has a refund request being processed",
+    );
+  }
+
+  const payment = await Payment.findOne({ orderId: order._id });
+
+  if (order.paymentMethod !== "COD" && !payment) {
+    throw new AppError(
+      409,
+      "PAYMENT_NOT_FOUND",
+      "Payment record not found for this order",
     );
   }
 
   const refund = await Refund.create({
     orderId: order._id,
     userId,
-    paymentId: await Payment.findOne({ orderId: order._id }).then((payment) => payment?._id || null),
+    paymentId: payment?._id || null,
     amount: Number(requestedAmount.toFixed(2)),
     currency: "INR",
     reason,
@@ -185,22 +225,27 @@ export const createRefundRequestService = async (userId, { orderId, amount, reas
   await notifyCustomer(
     refund,
     "Refund request received",
-    `Your refund request for order ${order.orderNumber} has been received.`
+    `Your refund request for order ${order.orderNumber} has been received.`,
   );
 
   return refund;
 };
 
-export const getMyRefundsService = async (userId) => {
-  return Refund.find({ userId })
-    .populate("orderId", "orderNumber grandTotal paymentMethod paymentStatus orderStatus")
+export const getMyRefundsService = async (userId) =>
+  Refund.find({ userId })
+    .populate(
+      "orderId",
+      "orderNumber grandTotal paymentMethod paymentStatus orderStatus",
+    )
     .sort({ createdAt: -1 })
     .lean();
-};
 
 export const getRefundByIdService = async (userId, refundId) => {
   const refund = await Refund.findOne({ _id: refundId, userId })
-    .populate("orderId", "orderNumber grandTotal paymentMethod paymentStatus orderStatus")
+    .populate(
+      "orderId",
+      "orderNumber grandTotal paymentMethod paymentStatus orderStatus",
+    )
     .lean();
 
   if (!refund) {
@@ -228,7 +273,6 @@ export const getAdminRefundsService = async ({
     }).select("_id");
 
     const orderIds = orders.map((order) => order._id);
-
     query.$or = [
       { orderId: { $in: orderIds } },
       { razorpayRefundId: new RegExp(search.trim(), "i") },
@@ -237,7 +281,10 @@ export const getAdminRefundsService = async ({
 
   const [items, total, summary] = await Promise.all([
     Refund.find(query)
-      .populate("orderId", "orderNumber grandTotal paymentMethod paymentStatus orderStatus")
+      .populate(
+        "orderId",
+        "orderNumber grandTotal paymentMethod paymentStatus orderStatus",
+      )
       .populate("userId", "name email phone")
       .populate("processedBy", "name email")
       .sort({ createdAt: -1 })
@@ -260,26 +307,22 @@ export const getAdminRefundsService = async ({
   const summaryMap = Object.fromEntries(
     summary.map((item) => [
       item._id,
-      {
-        count: Number(item.count || 0),
-        amount: Number(item.amount || 0),
-      },
-    ])
+      { count: Number(item.count || 0), amount: Number(item.amount || 0) },
+    ]),
   );
 
   return {
     items,
     summary: {
       requested: summaryMap.REQUESTED || { count: 0, amount: 0 },
-      processing:
-        summaryMap.PROCESSING || { count: 0, amount: 0 },
-      processed:
-        summaryMap.PROCESSED || { count: 0, amount: 0 },
+      approved: summaryMap.APPROVED || { count: 0, amount: 0 },
+      processing: summaryMap.PROCESSING || { count: 0, amount: 0 },
+      processed: summaryMap.PROCESSED || { count: 0, amount: 0 },
       failed: summaryMap.FAILED || { count: 0, amount: 0 },
       manualRequired:
         summaryMap.MANUAL_REQUIRED || { count: 0, amount: 0 },
-      rejected:
-        summaryMap.REJECTED || { count: 0, amount: 0 },
+      rejected: summaryMap.REJECTED || { count: 0, amount: 0 },
+      reversed: summaryMap.REVERSED || { count: 0, amount: 0 },
     },
     pagination: {
       page: safePage,
@@ -300,7 +343,7 @@ export const processRefundService = async (adminId, refundId) => {
     throw new AppError(
       409,
       "REFUND_NOT_PROCESSABLE",
-      `Refund cannot be processed from ${refund.status} status`
+      `Refund cannot be processed from ${refund.status} status`,
     );
   }
 
@@ -309,16 +352,8 @@ export const processRefundService = async (adminId, refundId) => {
     throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
   }
 
-  const payment = await Payment.findById(refund.paymentId);
-  if (!payment) {
-    throw new AppError(404, "PAYMENT_NOT_FOUND", "Payment record not found");
-  }
-
-  refund.processedBy = adminId;
-  refund.status = "APPROVED";
-  await refund.save();
-
   if (order.paymentMethod === "COD") {
+    refund.processedBy = adminId;
     refund.status = "MANUAL_REQUIRED";
     refund.gatewayResponse = {
       mode: "COD",
@@ -342,53 +377,70 @@ export const processRefundService = async (adminId, refundId) => {
       refund,
       "Refund approved",
       `Your refund for order ${order.orderNumber} was approved and is awaiting manual settlement.`,
-      adminId
+      adminId,
     );
 
     return refund;
+  }
+
+  const payment = await Payment.findById(refund.paymentId);
+  if (!payment) {
+    refund.status = "FAILED";
+    refund.rejectionReason = "Payment record not found";
+    await refund.save();
+
+    throw new AppError(
+      409,
+      "PAYMENT_NOT_FOUND",
+      "Payment record not found",
+    );
   }
 
   if (!payment.razorpayPaymentId) {
     refund.status = "FAILED";
     refund.rejectionReason = "Razorpay payment ID is missing";
     await refund.save();
+
     throw new AppError(
       409,
       "RAZORPAY_PAYMENT_NOT_FOUND",
-      "The original Razorpay payment ID is missing"
+      "The original Razorpay payment ID is missing",
     );
   }
+
+  refund.processedBy = adminId;
+  refund.status = "APPROVED";
+  await refund.save();
 
   const alreadyRefunded = await getProcessedRefundTotal(order._id);
   const refundableBeforeThis = Number(order.grandTotal) - alreadyRefunded;
 
   if (refund.amount > refundableBeforeThis + 0.01) {
     refund.status = "FAILED";
-    refund.rejectionReason = "Refund amount exceeds remaining refundable amount";
+    refund.rejectionReason =
+      "Refund amount exceeds remaining refundable amount";
     await refund.save();
 
     throw new AppError(
       409,
       "REFUND_AMOUNT_EXCEEDED",
-      "Refund amount exceeds the remaining refundable amount"
+      "Refund amount exceeds the remaining refundable amount",
     );
   }
 
-  const receipt = `rf-${refund._id.toString()}`;
-
   try {
-    const gatewayRefund = await razorpay.payments.refund(
+    const gatewayRefund = await getRazorpayClient().payments.refund(
       payment.razorpayPaymentId,
       {
         amount: Math.round(refund.amount * 100),
         speed: "normal",
-        receipt,
+        receipt: `rf-${refund._id.toString()}`,
         notes: {
           refund_id: refund._id.toString(),
           order_id: order._id.toString(),
           reason: refund.reason.slice(0, 256),
         },
-      }
+      },
     );
 
     refund.razorpayRefundId = gatewayRefund.id;
@@ -424,7 +476,7 @@ export const processRefundService = async (adminId, refundId) => {
       refund.status === "PROCESSED"
         ? `₹${refund.amount.toFixed(2)} refund for order ${order.orderNumber} has been processed.`
         : `₹${refund.amount.toFixed(2)} refund for order ${order.orderNumber} is being processed.`,
-      adminId
+      adminId,
     );
 
     return refund;
@@ -453,10 +505,12 @@ export const processRefundService = async (adminId, refundId) => {
       },
     });
 
+    if (error instanceof AppError) throw error;
+
     throw new AppError(
       502,
       "REFUND_GATEWAY_FAILED",
-      refund.rejectionReason
+      refund.rejectionReason,
     );
   }
 };
@@ -471,7 +525,7 @@ export const rejectRefundService = async (adminId, refundId, reason) => {
     throw new AppError(
       409,
       "REFUND_NOT_REJECTABLE",
-      `Refund cannot be rejected from ${refund.status} status`
+      `Refund cannot be rejected from ${refund.status} status`,
     );
   }
 
@@ -497,7 +551,7 @@ export const rejectRefundService = async (adminId, refundId, reason) => {
     refund,
     "Refund request rejected",
     `Your refund request was rejected: ${reason}`,
-    adminId
+    adminId,
   );
 
   return refund;
@@ -506,7 +560,7 @@ export const rejectRefundService = async (adminId, refundId, reason) => {
 export const completeManualRefundService = async (
   adminId,
   refundId,
-  reference
+  reference,
 ) => {
   const refund = await Refund.findById(refundId);
   if (!refund) {
@@ -517,7 +571,7 @@ export const completeManualRefundService = async (
     throw new AppError(
       409,
       "MANUAL_REFUND_NOT_REQUIRED",
-      "This refund is not awaiting manual settlement"
+      "This refund is not awaiting manual settlement",
     );
   }
 
@@ -545,7 +599,7 @@ export const completeManualRefundService = async (
     refund,
     "Refund completed",
     `Your ₹${refund.amount.toFixed(2)} refund has been completed.`,
-    adminId
+    adminId,
   );
 
   return refund;
@@ -555,17 +609,10 @@ export const handleRazorpayRefundWebhookService = async (payload) => {
   const event = payload?.event;
   const entity = payload?.payload?.refund?.entity;
 
-  if (!entity?.id) {
-    return { ignored: true };
-  }
+  if (!entity?.id) return { ignored: true };
 
-  const refund = await Refund.findOne({
-    razorpayRefundId: entity.id,
-  });
-
-  if (!refund) {
-    return { ignored: true };
-  }
+  const refund = await Refund.findOne({ razorpayRefundId: entity.id });
+  if (!refund) return { ignored: true };
 
   const statusMap = {
     "refund.created": "PROCESSING",
@@ -575,21 +622,22 @@ export const handleRazorpayRefundWebhookService = async (payload) => {
   };
 
   const nextStatus = statusMap[event];
-  if (!nextStatus) {
-    return { ignored: true };
-  }
+  if (!nextStatus) return { ignored: true };
 
   refund.status = nextStatus;
   refund.gatewayResponse = entity;
+
   if (entity.status === "failed") {
     refund.rejectionReason =
       entity.error_description ||
       entity.error_reason ||
       refund.rejectionReason;
   }
+
   if (nextStatus === "PROCESSED") {
     refund.processedAt = refund.processedAt || new Date();
   }
+
   await refund.save();
 
   if (nextStatus === "PROCESSED") {
@@ -607,7 +655,7 @@ export const handleRazorpayRefundWebhookService = async (payload) => {
       ? `Your ₹${refund.amount.toFixed(2)} refund has been processed.`
       : nextStatus === "FAILED"
         ? `Your refund could not be processed. ${refund.rejectionReason || ""}`.trim()
-        : `Your refund status is now ${nextStatus.toLowerCase()}.`
+        : `Your refund status is now ${nextStatus.toLowerCase()}.`,
   );
 
   return { ignored: false, refund };
@@ -626,9 +674,7 @@ export const verifyRazorpayWebhookSignature = (rawBody, signature) => {
   const expectedBuffer = Buffer.from(expected);
   const receivedBuffer = Buffer.from(String(signature));
 
-  if (expectedBuffer.length !== receivedBuffer.length) {
-    return false;
-  }
+  if (expectedBuffer.length !== receivedBuffer.length) return false;
 
   return crypto.timingSafeEqual(expectedBuffer, receivedBuffer);
 };
