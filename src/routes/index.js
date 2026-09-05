@@ -12,6 +12,7 @@ import orderRoutes from "../modules/order/order.routes.js";
 import paymentRoutes from "../modules/payment/payment.routes.js";
 import refundRoutes from "../modules/refund/refund.routes.js";
 import deliveryRoutes from "../modules/delivery/delivery.routes.js";
+import deliveryRatingRoutes from "../modules/deliveryRating/deliveryRating.routes.js";
 import reviewRoutes from "../modules/review/review.routes.js";
 import notificationRoutes from "../modules/notification/notification.routes.js";
 import customerRoutes from "../modules/customer/customer.routes.js";
@@ -32,15 +33,7 @@ import catalogOperationsRoutes from "../modules/catalogOperations/catalog-operat
 import recommendationRoutes from "../modules/recommendation/recommendation.routes.js";
 
 const router = Router();
-
-router.get("/health", (req, res) => res.status(200).json({
-  success: true,
-  message: "Backend Running",
-  code: "OK",
-  data: null,
-  errors: [],
-}));
-
+router.get("/health", (req, res) => res.status(200).json({ success: true, message: "Backend Running", code: "OK", data: null, errors: [] }));
 router.use("/auth", authRoutes);
 router.use("/profile", profileRoutes);
 router.use("/category", categoryRoutes);
@@ -54,6 +47,7 @@ router.use("/order", orderRoutes);
 router.use("/payment", paymentRoutes);
 router.use("/refund", refundRoutes);
 router.use("/delivery", deliveryRoutes);
+router.use("/delivery-ratings", deliveryRatingRoutes);
 router.use("/review", reviewRoutes);
 router.use("/notification", notificationRoutes);
 router.use("/customer", customerRoutes);
@@ -72,5 +66,4 @@ router.use("/audit", auditRoutes);
 router.use("/ai", aiRoutes);
 router.use("/catalog-operations", catalogOperationsRoutes);
 router.use("/recommendations", recommendationRoutes);
-
 export default router;
