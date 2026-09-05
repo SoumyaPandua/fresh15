@@ -14,6 +14,7 @@ const processedRefundTotal = async (orderId) => {
     { $match: { orderId, status: "PROCESSED" } },
     { $group: { _id: "$orderId", amount: { $sum: "$amount" } } },
   ]);
+
   return Number(rows[0]?.amount || 0);
 };
 
@@ -30,11 +31,17 @@ const reserveRefundAmount = async (orderId, userId, amount) => {
 
   const processed = await processedRefundTotal(orderId);
 
+  // Use a normal Mongo/Mongoose update document here.
+  // The previous implementation passed an update pipeline array without
+  // enabling the Mongoose `updatePipeline` option, which caused:
+  // "Cannot pass an array to query updates unless the `updatePipeline`
+  // option is set."
   const order = await Order.findOneAndUpdate(
     {
       _id: orderId,
       userId,
       isDeleted: false,
+      orderStatus: { $in: ["DELIVERED", "CANCELLED"] },
       paymentStatus: "PAID",
       $expr: {
         $lte: [
@@ -49,19 +56,14 @@ const reserveRefundAmount = async (orderId, userId, amount) => {
         ],
       },
     },
-    [
-      {
-        $set: {
-          refundedAmount: processed,
-          refundReservedAmount: {
-            $add: [
-              { $ifNull: ["$refundReservedAmount", 0] },
-              requested,
-            ],
-          },
-        },
+    {
+      $inc: {
+        refundReservedAmount: requested,
       },
-    ],
+      $set: {
+        refundedAmount: processed,
+      },
+    },
     { new: true },
   );
 
@@ -70,13 +72,35 @@ const reserveRefundAmount = async (orderId, userId, amount) => {
       _id: orderId,
       userId,
       isDeleted: false,
-    }).select("grandTotal refundedAmount refundReservedAmount");
+    }).select(
+      "grandTotal refundedAmount refundReservedAmount orderStatus paymentStatus",
+    );
+
+    if (!current) {
+      throw new AppError(404, "ORDER_NOT_FOUND", "Order not found");
+    }
+
+    if (!["DELIVERED", "CANCELLED"].includes(current.orderStatus)) {
+      throw new AppError(
+        409,
+        "REFUND_NOT_ELIGIBLE",
+        "Refunds can only be requested for delivered or cancelled orders",
+      );
+    }
+
+    if (current.paymentStatus !== "PAID") {
+      throw new AppError(
+        409,
+        "PAYMENT_NOT_REFUNDABLE",
+        "Only successfully paid orders can be refunded",
+      );
+    }
 
     const remaining = Math.max(
       0,
-      Number(current?.grandTotal || 0) -
-        Number(current?.refundedAmount || 0) -
-        Number(current?.refundReservedAmount || 0),
+      Number(current.grandTotal || 0) -
+        Number(current.refundedAmount || 0) -
+        Number(current.refundReservedAmount || 0),
     );
 
     throw new AppError(
@@ -165,7 +189,11 @@ export const processRefundWithConcurrency = async (adminId, refundId) => {
   }
 };
 
-export const rejectRefundWithConcurrency = async (adminId, refundId, reason) => {
+export const rejectRefundWithConcurrency = async (
+  adminId,
+  refundId,
+  reason,
+) => {
   const refund = await rejectRefundService(adminId, refundId, reason);
   await settleReservation(refundId, "release");
   return refund;
@@ -181,6 +209,7 @@ export const completeManualRefundWithConcurrency = async (
     refundId,
     reference,
   );
+
   await settleReservation(refundId, "processed");
   return refund;
 };
