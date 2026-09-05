@@ -2,6 +2,7 @@ import Notification from "./notification.model.js";
 import User from "../user/user.model.js";
 import sendEmail from "../../utils/sendEmail.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
+import { enqueueRealtimeEvent } from "../outbox/outbox.service.js";
 
 const sendNotificationEmail = async (
   user,
@@ -50,6 +51,28 @@ export const createNotificationService =
           body.metadata || {},
         createdBy,
       });
+
+    if (channel === "IN_APP") {
+      void enqueueRealtimeEvent(
+        `notification:${body.userId}:${notification._id}`,
+        "customer:notification",
+        {
+          _id: String(notification._id),
+          title: notification.title,
+          message: notification.message,
+          type: notification.type,
+          metadata: notification.metadata || {},
+          createdAt: notification.createdAt,
+        },
+        "customer",
+        body.userId,
+      ).catch((error) => {
+        console.error(
+          "Customer notification realtime enqueue failed:",
+          error.message,
+        );
+      });
+    }
 
     if (channel === "EMAIL") {
       await sendNotificationEmail(

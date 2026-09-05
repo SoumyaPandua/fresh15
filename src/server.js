@@ -6,6 +6,7 @@ import connectDB from "./config/database.js";
 import initializeSocket from "./socket/index.js";
 import { startOutboxWorker } from "./modules/outbox/outbox.worker.js";
 import { processPendingCatalogImports } from "./modules/catalogOperations/catalog-operations.service.js";
+import { startProductSearchSyncWorker } from "./modules/product/product-search.service.js";
 
 const PORT = process.env.PORT || 5000;
 const server = http.createServer(app);
@@ -44,6 +45,7 @@ connectDB()
   .then(() => {
     startOutboxWorker({ intervalMs: 1000 });
     startCatalogWorker();
+    startProductSearchSyncWorker({ intervalMs: 15000 });
     server.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch((error) => {

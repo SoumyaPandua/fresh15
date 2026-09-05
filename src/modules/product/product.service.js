@@ -6,6 +6,11 @@ import { uploadImage } from "../../config/cloudinary.js";
 import { parsePagination, buildPagination } from "../../utils/pagination.js";
 import { processBackInStockAlertService, processPriceDropAlertService } from "../productAlert/productAlert.service.js";
 import AppError from "../../utils/AppError.js";
+import {
+  deleteProductFromSearch,
+  indexProductInSearch,
+  searchProductsInElasticsearch,
+} from "./product-search.service.js";
 
 const getInventorySnapshot = async (productIds) => {
   const rows = await Inventory.find({ productId: { $in: productIds } }).select("productId currentStock availableStock").lean();
@@ -18,7 +23,18 @@ const imageFolder = (category) => {
   return `fresh15/products/${slug}`;
 };
 
+const syncSearchProduct = (productId) => {
+  void indexProductInSearch(productId).catch((error) => {
+    console.error("Elasticsearch product sync failed:", error.message);
+  });
+};
+
 export const getAllProductsService = async (query = {}) => {
+  if (String(query.search || "").trim()) {
+    const elasticResults = await searchProductsInElasticsearch(query);
+    if (elasticResults) return elasticResults;
+  }
+
   const filter = { isDeleted: false };
   const categoryFilter = query.categoryId || query.category;
   if (categoryFilter) filter.categoryId = categoryFilter;
@@ -117,7 +133,9 @@ export const createProductService = async (userId, body, files) => {
     createdBy: userId,
   });
 
-  return getProductByIdService(product._id);
+  const result = await getProductByIdService(product._id);
+  syncSearchProduct(product._id);
+  return result;
 };
 
 export const updateProductService = async (id, userId, body, files) => {
@@ -198,7 +216,9 @@ export const updateProductService = async (id, userId, body, files) => {
     console.error("Product alert processing failed:", error.message);
   }
 
-  return getProductByIdService(product._id);
+  const result = await getProductByIdService(product._id);
+  syncSearchProduct(product._id);
+  return result;
 };
 
 export const updateProductStatusService = async (id, userId, isActive) => {
@@ -208,7 +228,10 @@ export const updateProductStatusService = async (id, userId, isActive) => {
   product.stock = 0;
   product.updatedBy = userId;
   await product.save();
-  return getProductByIdService(product._id);
+
+  const result = await getProductByIdService(product._id);
+  syncSearchProduct(product._id);
+  return result;
 };
 
 export const deleteProductService = async (id, userId) => {
@@ -218,4 +241,8 @@ export const deleteProductService = async (id, userId) => {
   product.stock = 0;
   product.updatedBy = userId;
   await product.save();
+
+  void deleteProductFromSearch(product._id).catch((error) => {
+    console.error("Elasticsearch product delete sync failed:", error.message);
+  });
 };
